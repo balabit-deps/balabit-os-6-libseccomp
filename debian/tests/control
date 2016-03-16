@@ -1,0 +1,3 @@
+Tests: test-filter test-scmp_sys_resolver
+Restrictions: allow-stderr
+Depends: @, build-essential, linux-libc-dev

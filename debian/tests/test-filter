@@ -1,0 +1,75 @@
+#!/bin/sh
+# ------------------------------------------------------------------
+#
+#    Copyright (C) 2015 Canonical Ltd.
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of version 2 of the GNU General Public
+#    License published by the Free Software Foundation.
+#
+# ------------------------------------------------------------------
+
+set -e
+
+if [ -z "$ADTTMP" ]; then
+    echo "Please set ADTTMP" >&2
+    exit 1
+fi
+
+if [ ! -d "$ADTTMP" ]; then
+    echo "Could not find ADTTMP ($ADTTMP)" >&2
+    exit 1
+fi
+
+exe="$ADTTMP/exe"
+
+run_filter() {
+    if [ ! -x "$exe" ]; then
+        gcc -o "$exe" ./debian/tests/src/test-seccomp.c -lseccomp
+    fi
+
+    filter="$1"
+
+    exe2="$ADTTMP/getrandom"
+    if [ "`basename $filter`" = "getrandom.fail_filter" ]; then
+        if [ ! -x "$exe2" ]; then
+            gcc -o "$exe2" ./debian/tests/src/getrandom.c
+        fi
+
+        "$exe" "$filter" "$exe2"
+    elif [ "`basename $filter`" = "getrandom.filter" ]; then
+        if [ ! -x "$exe2" ]; then
+            gcc -o "$exe2" ./debian/tests/src/getrandom.c
+        fi
+
+        "$exe" "$filter" "$exe2"
+    else
+        "$exe" "$filter" /bin/date
+    fi
+}
+
+failed=
+# expected pass
+for i in ./debian/tests/data/*.filter ; do
+    echo "= $i ="
+    run_filter $i || {
+        echo "FAIL: expected to pass"
+        failed="yes"
+    }
+done
+
+# expected fail
+for i in ./debian/tests/data/*.fail_filter ; do
+    echo "= $i ="
+    run_filter $i 2>&1 && {
+        echo "FAIL: expected to error"
+        failed="yes"
+    }
+done
+
+echo ""
+if [ "$failed" = "yes" ]; then
+    echo FAIL
+    exit 1
+fi
+echo PASS

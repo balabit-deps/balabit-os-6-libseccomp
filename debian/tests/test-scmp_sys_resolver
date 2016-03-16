@@ -1,0 +1,54 @@
+#!/bin/sh
+# ------------------------------------------------------------------
+#
+#    Copyright (C) 2015 Canonical Ltd.
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of version 2 of the GNU General Public
+#    License published by the Free Software Foundation.
+#
+# ------------------------------------------------------------------
+
+set -e
+
+failed=
+
+test_range() {
+    low=$1
+    high=$2
+    echo "Testing syscalls $low-$high"
+    for i in `seq $low $high` ; do
+        res=`scmp_sys_resolver $i` || {
+            echo "'$i' failed"
+            failed="yes"
+        }
+        if [ "$res" = "UNKNOWN" ]; then
+            continue
+        fi
+        res2=`scmp_sys_resolver $res` || {
+            echo "'$res' failed"
+            failed="yes"
+        }
+        if [ "$res2" != "$i" ]; then
+            echo "FAIL: $i ($res) != $res ($res2)"
+            failed="yes"
+        else
+            echo "pass: $i ($res) == $res ($res2)"
+        fi
+    done
+}
+
+echo "= normal range ="
+test_range 0 1024
+echo ""
+
+echo "= arm private ="
+test_range 983000 984024
+echo ""
+
+echo ""
+if [ "$failed" = "yes" ]; then
+    echo FAIL
+    exit 1
+fi
+echo PASS
