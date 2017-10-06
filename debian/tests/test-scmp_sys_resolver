@@ -18,20 +18,25 @@ test_range() {
     high=$2
     echo "Testing syscalls $low-$high"
     for i in `seq $low $high` ; do
-        res=`scmp_sys_resolver $i` || {
+        res=`scmp_sys_resolver -- $i` || {
             echo "'$i' failed"
             failed="yes"
         }
         if [ "$res" = "UNKNOWN" ]; then
             continue
         fi
-        res2=`scmp_sys_resolver $res` || {
+        res2=`scmp_sys_resolver -- $res` || {
             echo "'$res' failed"
             failed="yes"
         }
         if [ "$res2" != "$i" ]; then
-            echo "FAIL: $i ($res) != $res ($res2)"
-            failed="yes"
+	    res3=`scmp_sys_resolver -- $res2`
+	    if [ "$res" = "$res3" ]; then
+		echo "pass: $i ($res) == $res ($res2 which is $res3)"
+	    else
+		echo "FAIL: $i ($res) != $res ($res2)"
+		failed="yes"
+	    fi
         else
             echo "pass: $i ($res) == $res ($res2)"
         fi

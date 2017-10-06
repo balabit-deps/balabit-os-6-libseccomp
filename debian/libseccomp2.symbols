@@ -1,4 +1,5 @@
 libseccomp.so.2 libseccomp2 #MINVER#
+* Build-Depends-Package: libseccomp-dev
  seccomp_attr_get@Base 0.0.0~20120605
  seccomp_attr_set@Base 0.0.0~20120605
  seccomp_export_bpf@Base 0.0.0~20120605
@@ -22,3 +23,4 @@ libseccomp.so.2 libseccomp2 #MINVER#
  seccomp_syscall_resolve_num_arch@Base 2.1.0
  seccomp_arch_resolve_name@Base 2.2.1
  seccomp_syscall_resolve_name_rewrite@Base 2.2.1
+ seccomp_version@Base 2.3.0
