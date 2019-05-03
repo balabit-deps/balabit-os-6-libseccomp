@@ -30,7 +30,7 @@
 /* 64 ABI */
 #define __SCMP_NR_BASE	5000
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "_llseek", __PNR__llseek },
 	{ "_newselect", (__SCMP_NR_BASE + 22) },
@@ -126,6 +126,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "get_mempolicy", (__SCMP_NR_BASE + 228) },
 	{ "get_robust_list", (__SCMP_NR_BASE + 269) },
 	{ "get_thread_area", __PNR_get_thread_area },
+	{ "get_tls", __PNR_get_tls },
 	{ "getcpu", (__SCMP_NR_BASE + 271) },
 	{ "getcwd", (__SCMP_NR_BASE + 77) },
 	{ "getdents", (__SCMP_NR_BASE + 76) },
@@ -171,6 +172,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "io_cancel", (__SCMP_NR_BASE + 204) },
 	{ "io_destroy", (__SCMP_NR_BASE + 201) },
 	{ "io_getevents", (__SCMP_NR_BASE + 202) },
+	{ "io_pgetevents", (__SCMP_NR_BASE + 328) },
 	{ "io_setup", (__SCMP_NR_BASE + 200) },
 	{ "io_submit", (__SCMP_NR_BASE + 203) },
 	{ "ioctl", (__SCMP_NR_BASE + 15) },
@@ -258,11 +260,15 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "pipe", (__SCMP_NR_BASE + 21) },
 	{ "pipe2", (__SCMP_NR_BASE + 287) },
 	{ "pivot_root", (__SCMP_NR_BASE + 151) },
+	{ "pkey_alloc", (__SCMP_NR_BASE + 324) },
+	{ "pkey_free", (__SCMP_NR_BASE + 325) },
+	{ "pkey_mprotect", (__SCMP_NR_BASE + 323) },
 	{ "poll", (__SCMP_NR_BASE + 7) },
 	{ "ppoll", (__SCMP_NR_BASE + 261) },
 	{ "prctl", (__SCMP_NR_BASE + 153) },
 	{ "pread64", (__SCMP_NR_BASE + 16) },
 	{ "preadv", (__SCMP_NR_BASE + 289) },
+	{ "preadv2", (__SCMP_NR_BASE + 321) },
 	{ "prlimit64", (__SCMP_NR_BASE + 297) },
 	{ "process_vm_readv", (__SCMP_NR_BASE + 304) },
 	{ "process_vm_writev", (__SCMP_NR_BASE + 305) },
@@ -273,6 +279,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "putpmsg", (__SCMP_NR_BASE + 175) },
 	{ "pwrite64", (__SCMP_NR_BASE + 17) },
 	{ "pwritev", (__SCMP_NR_BASE + 290) },
+	{ "pwritev2", (__SCMP_NR_BASE + 322) },
 	{ "query_module", (__SCMP_NR_BASE + 171) },
 	{ "quotactl", (__SCMP_NR_BASE + 172) },
 	{ "read", (__SCMP_NR_BASE + 0) },
@@ -294,6 +301,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "request_key", (__SCMP_NR_BASE + 240) },
 	{ "restart_syscall", (__SCMP_NR_BASE + 213) },
 	{ "rmdir", (__SCMP_NR_BASE + 82) },
+	{ "rseq", (__SCMP_NR_BASE + 327) },
 	{ "rt_sigaction", (__SCMP_NR_BASE + 13) },
 	{ "rt_sigpending", (__SCMP_NR_BASE + 125) },
 	{ "rt_sigprocmask", (__SCMP_NR_BASE + 14) },
@@ -303,9 +311,11 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "rt_sigtimedwait", (__SCMP_NR_BASE + 126) },
 	{ "rt_tgsigqueueinfo", (__SCMP_NR_BASE + 291) },
 	{ "rtas", __PNR_rtas },
+	{ "s390_guarded_storage", __PNR_s390_guarded_storage },
 	{ "s390_pci_mmio_read", __PNR_s390_pci_mmio_read },
 	{ "s390_pci_mmio_write", __PNR_s390_pci_mmio_write },
 	{ "s390_runtime_instr", __PNR_s390_runtime_instr },
+	{ "s390_sthyi", __PNR_s390_sthyi },
 	{ "sched_get_priority_max", (__SCMP_NR_BASE + 143) },
 	{ "sched_get_priority_min", (__SCMP_NR_BASE + 144) },
 	{ "sched_getaffinity", (__SCMP_NR_BASE + 196) },
@@ -391,6 +401,7 @@ const struct arch_syscall_def mips64_syscall_table[] = { \
 	{ "stat64", __PNR_stat64 },
 	{ "statfs", (__SCMP_NR_BASE + 134) },
 	{ "statfs64", __PNR_statfs64 },
+	{ "statx", (__SCMP_NR_BASE + 326) },
 	{ "stime", __PNR_stime },
 	{ "stty", __PNR_stty },
 	{ "subpage_prot", __PNR_subpage_prot },
@@ -505,15 +516,15 @@ const char *mips64_syscall_resolve_num(int num)
 }
 
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *mips64_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *mips64_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return mips64_syscall_table[spot].name;
+	return &mips64_syscall_table[spot];
 }

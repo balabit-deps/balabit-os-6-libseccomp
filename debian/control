@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XSBC-Original-Maintainer: Kees Cook <kees@debian.org>
 Uploaders: Luca Bruno <lucab@debian.org>
-Build-Depends: debhelper (>= 9), dh-autoreconf, linux-libc-dev
+Build-Depends: debhelper (>= 9), dh-autoreconf, linux-libc-dev, valgrind
 Standards-Version: 3.9.7
 Homepage: https://github.com/seccomp/libseccomp
 Vcs-Git: https://anonscm.debian.org/git/collab-maint/libseccomp.git

@@ -112,11 +112,14 @@ static void exit_error(unsigned int rc, unsigned int line)
  */
 static void end_action(uint32_t action, unsigned int line)
 {
-	uint32_t act = action & SECCOMP_RET_ACTION;
+	uint32_t act = action & SECCOMP_RET_ACTION_FULL;
 	uint32_t data = action & SECCOMP_RET_DATA;
 
 	switch (act) {
-	case SECCOMP_RET_KILL:
+	case SECCOMP_RET_KILL_PROCESS:
+		fprintf(stdout, "KILL_PROCESS\n");
+		break;
+	case SECCOMP_RET_KILL_THREAD:
 		fprintf(stdout, "KILL\n");
 		break;
 	case SECCOMP_RET_TRAP:
@@ -127,6 +130,9 @@ static void end_action(uint32_t action, unsigned int line)
 		break;
 	case SECCOMP_RET_TRACE:
 		fprintf(stdout, "TRACE(%u)\n", data);
+		break;
+	case SECCOMP_RET_LOG:
+		fprintf(stdout, "LOG\n");
 		break;
 	case SECCOMP_RET_ALLOW:
 		fprintf(stdout, "ALLOW\n");
@@ -265,6 +271,10 @@ int main(int argc, char *argv[])
 				arch = AUDIT_ARCH_MIPS64N32;
 			else if (strcmp(optarg, "mipsel64n32") == 0)
 				arch = AUDIT_ARCH_MIPSEL64N32;
+			else if (strcmp(optarg, "parisc") == 0)
+				arch = AUDIT_ARCH_PARISC;
+			else if (strcmp(optarg, "parisc64") == 0)
+				arch = AUDIT_ARCH_PARISC64;
 			else if (strcmp(optarg, "ppc") == 0)
 				arch = AUDIT_ARCH_PPC;
 			else if (strcmp(optarg, "ppc64") == 0)

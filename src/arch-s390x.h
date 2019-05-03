@@ -23,11 +23,10 @@ extern const struct arch_def arch_def_s390x;
 int s390x_syscall_resolve_name(const char *name);
 const char *s390x_syscall_resolve_num(int num);
 
-const char *s390x_syscall_iterate_name(unsigned int spot);
+const struct arch_syscall_def *s390x_syscall_iterate(unsigned int spot);
 
 int s390x_syscall_rewrite(int *syscall);
 
-int s390x_rule_add(struct db_filter_col *col, struct db_filter *db, bool strict,
-		   struct db_api_rule_list *rule);
+int s390x_rule_add(struct db_filter *db, struct db_api_rule_list *rule);
 
 #endif

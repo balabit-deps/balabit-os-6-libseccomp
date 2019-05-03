@@ -26,7 +26,7 @@
 #include "arch.h"
 #include "arch-aarch64.h"
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "_llseek", __PNR__llseek },
 	{ "_newselect", __PNR__newselect },
@@ -122,6 +122,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "get_mempolicy", 236 },
 	{ "get_robust_list", 100 },
 	{ "get_thread_area", __PNR_get_thread_area },
+	{ "get_tls", __PNR_get_tls },
 	{ "getcpu", 168 },
 	{ "getcwd", 17 },
 	{ "getdents", __PNR_getdents },
@@ -167,6 +168,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "io_cancel", 3 },
 	{ "io_destroy", 1 },
 	{ "io_getevents", 4 },
+	{ "io_pgetevents", 292 },
 	{ "io_setup", 0 },
 	{ "io_submit", 2 },
 	{ "ioctl", 29 },
@@ -176,7 +178,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "ioprio_set", 30 },
 	{ "ipc", __PNR_ipc },
 	{ "kcmp", 272 },
-	{ "kexec_file_load", __PNR_kexec_file_load },
+	{ "kexec_file_load", 294 },
 	{ "kexec_load", 104 },
 	{ "keyctl", 219 },
 	{ "kill", 129 },
@@ -254,11 +256,15 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "pipe", __PNR_pipe },
 	{ "pipe2", 59 },
 	{ "pivot_root", 41 },
+	{ "pkey_alloc", 289 },
+	{ "pkey_free", 290 },
+	{ "pkey_mprotect", 288 },
 	{ "poll", __PNR_poll },
 	{ "ppoll", 73 },
 	{ "prctl", 167 },
 	{ "pread64", 67 },
 	{ "preadv", 69 },
+	{ "preadv2", 286 },
 	{ "prlimit64", 261 },
 	{ "process_vm_readv", 270 },
 	{ "process_vm_writev", 271 },
@@ -269,6 +275,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "putpmsg", __PNR_putpmsg },
 	{ "pwrite64", 68 },
 	{ "pwritev", 70 },
+	{ "pwritev2", 287 },
 	{ "query_module", __PNR_query_module },
 	{ "quotactl", 60 },
 	{ "read", 63 },
@@ -290,6 +297,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "request_key", 218 },
 	{ "restart_syscall", 128 },
 	{ "rmdir", __PNR_rmdir },
+	{ "rseq", 293 },
 	{ "rt_sigaction", 134 },
 	{ "rt_sigpending", 136 },
 	{ "rt_sigprocmask", 135 },
@@ -299,9 +307,11 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "rt_sigtimedwait", 137 },
 	{ "rt_tgsigqueueinfo", 240 },
 	{ "rtas", __PNR_rtas },
+	{ "s390_guarded_storage", __PNR_s390_guarded_storage },
 	{ "s390_pci_mmio_read", __PNR_s390_pci_mmio_read },
 	{ "s390_pci_mmio_write", __PNR_s390_pci_mmio_write },
 	{ "s390_runtime_instr", __PNR_s390_runtime_instr },
+	{ "s390_sthyi", __PNR_s390_sthyi },
 	{ "sched_get_priority_max", 125 },
 	{ "sched_get_priority_min", 126 },
 	{ "sched_getaffinity", 123 },
@@ -387,6 +397,7 @@ const struct arch_syscall_def aarch64_syscall_table[] = { \
 	{ "stat64", __PNR_stat64 },
 	{ "statfs", 43 },
 	{ "statfs64", __PNR_statfs64 },
+	{ "statx", 291 },
 	{ "stime", __PNR_stime },
 	{ "stty", __PNR_stty },
 	{ "subpage_prot", __PNR_subpage_prot },
@@ -502,15 +513,15 @@ const char *aarch64_syscall_resolve_num(int num)
 
 
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *aarch64_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *aarch64_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return aarch64_syscall_table[spot].name;
+	return &aarch64_syscall_table[spot];
 }

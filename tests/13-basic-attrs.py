@@ -29,6 +29,8 @@ import util
 from seccomp import *
 
 def test():
+    set_api(3)
+
     f = SyscallFilter(ALLOW)
     if f.get_attr(Attr.ACT_DEFAULT) != ALLOW:
         raise RuntimeError("Failed getting Attr.ACT_DEFAULT")
@@ -42,6 +44,14 @@ def test():
     f.set_attr(Attr.CTL_NNP, 0)
     if f.get_attr(Attr.CTL_NNP) != 0:
         raise RuntimeError("Failed getting Attr.CTL_NNP")
+    if f.get_attr(Attr.CTL_TSYNC) != 0:
+        raise RuntimeError("Failed getting Attr.CTL_TSYNC")
+    f.set_attr(Attr.API_TSKIP, 0)
+    if f.get_attr(Attr.API_TSKIP) != 0:
+        raise RuntimeError("Failed getting Attr.API_TSKIP")
+    f.set_attr(Attr.CTL_LOG, 1)
+    if f.get_attr(Attr.CTL_LOG) != 1:
+        raise RuntimeError("Failed getting Attr.CTL_LOG")
 
 test()
 

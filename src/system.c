@@ -40,6 +40,10 @@
 
 static int _nr_seccomp = -1;
 static int _support_seccomp_syscall = -1;
+static int _support_seccomp_flag_tsync = -1;
+static int _support_seccomp_flag_log = -1;
+static int _support_seccomp_action_log = -1;
+static int _support_seccomp_kill_process = -1;
 
 /**
  * Check to see if the seccomp() syscall is supported
@@ -98,22 +102,149 @@ supported:
 }
 
 /**
+ * Force the seccomp() syscall support setting
+ * @param enable the intended support state
+ *
+ * This function overrides the current seccomp() syscall support setting; this
+ * is very much a "use at your own risk" function.
+ *
+ */
+void sys_set_seccomp_syscall(bool enable)
+{
+	_support_seccomp_syscall = (enable ? 1 : 0);
+}
+
+/**
+ * Check to see if a seccomp action is supported
+ * @param action the seccomp action
+ *
+ * This function checks to see if a seccomp action is supported by the system.
+ * Return one if the action is supported, zero otherwise.
+ *
+ */
+int sys_chk_seccomp_action(uint32_t action)
+{
+	if (action == SCMP_ACT_KILL_PROCESS) {
+		if (_support_seccomp_kill_process < 0) {
+			if (sys_chk_seccomp_syscall() == 1 &&
+			    syscall(_nr_seccomp, SECCOMP_GET_ACTION_AVAIL, 0,
+				    &action) == 0)
+				_support_seccomp_kill_process = 1;
+			else
+				_support_seccomp_kill_process = 0;
+		}
+
+		return _support_seccomp_kill_process;
+	} else if (action == SCMP_ACT_KILL_THREAD) {
+		return 1;
+	} else if (action == SCMP_ACT_TRAP) {
+		return 1;
+	} else if ((action == SCMP_ACT_ERRNO(action & 0x0000ffff)) &&
+		   ((action & 0x0000ffff) < MAX_ERRNO)) {
+		return 1;
+	} else if (action == SCMP_ACT_TRACE(action & 0x0000ffff)) {
+		return 1;
+	} else if (action == SCMP_ACT_LOG) {
+		if (_support_seccomp_action_log < 0) {
+			if (sys_chk_seccomp_syscall() == 1 &&
+			    syscall(_nr_seccomp, SECCOMP_GET_ACTION_AVAIL, 0,
+				    &action) == 0)
+				_support_seccomp_action_log = 1;
+			else
+				_support_seccomp_action_log = 0;
+		}
+
+		return _support_seccomp_action_log;
+	} else if (action == SCMP_ACT_ALLOW) {
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * Force a seccomp action support setting
+ * @param action the seccomp action
+ * @param enable the intended support state
+ *
+ * This function overrides the current seccomp action support setting; this
+ * is very much a "use at your own risk" function.
+ */
+void sys_set_seccomp_action(uint32_t action, bool enable)
+{
+	if (action == SCMP_ACT_LOG)
+		_support_seccomp_action_log = (enable ? 1 : 0);
+	else if (action == SCMP_ACT_KILL_PROCESS)
+		_support_seccomp_kill_process = (enable ? 1 : 0);
+}
+
+/**
+ * Check to see if a seccomp() flag is supported by the kernel
+ * @param flag the seccomp() flag
+ *
+ * This function checks to see if a seccomp() flag is supported by the kernel.
+ * Return one if the flag is supported, zero otherwise.
+ *
+ */
+static int _sys_chk_seccomp_flag_kernel(int flag)
+{
+	/* this is an invalid seccomp(2) call because the last argument
+	 * is NULL, but depending on the errno value of EFAULT we can
+	 * guess if the filter flag is supported or not */
+	if (sys_chk_seccomp_syscall() == 1 &&
+	    syscall(_nr_seccomp, SECCOMP_SET_MODE_FILTER, flag, NULL) == -1 &&
+	    errno == EFAULT)
+		return 1;
+
+	return 0;
+}
+
+/**
  * Check to see if a seccomp() flag is supported
  * @param flag the seccomp() flag
  *
  * This function checks to see if a seccomp() flag is supported by the system.
- * If the flag is supported one is returned, zero if unsupported, negative
- * values on error.
+ * Return one if the syscall is supported, zero if unsupported, negative values
+ * on error.
  *
  */
 int sys_chk_seccomp_flag(int flag)
 {
 	switch (flag) {
 	case SECCOMP_FILTER_FLAG_TSYNC:
-		return sys_chk_seccomp_syscall();
+		if (_support_seccomp_flag_tsync < 0)
+			_support_seccomp_flag_tsync = _sys_chk_seccomp_flag_kernel(flag);
+
+		return _support_seccomp_flag_tsync;
+	case SECCOMP_FILTER_FLAG_LOG:
+		if (_support_seccomp_flag_log < 0)
+			_support_seccomp_flag_log = _sys_chk_seccomp_flag_kernel(flag);
+
+		return _support_seccomp_flag_log;
 	}
 
 	return -EOPNOTSUPP;
+}
+
+/**
+ * Force a seccomp() syscall flag support setting
+ * @param flag the seccomp() flag
+ * @param enable the intended support state
+ *
+ * This function overrides the current seccomp() syscall support setting for a
+ * given flag; this is very much a "use at your own risk" function.
+ *
+ */
+void sys_set_seccomp_flag(int flag, bool enable)
+{
+	switch (flag) {
+	case SECCOMP_FILTER_FLAG_TSYNC:
+		_support_seccomp_flag_tsync = (enable ? 1 : 0);
+		break;
+	case SECCOMP_FILTER_FLAG_LOG:
+		_support_seccomp_flag_log = (enable ? 1 : 0);
+		break;
+	}
 }
 
 /**
@@ -146,7 +277,9 @@ int sys_filter_load(const struct db_filter_col *col)
 	if (sys_chk_seccomp_syscall() == 1) {
 		int flgs = 0;
 		if (col->attr.tsync_enable)
-			flgs = SECCOMP_FILTER_FLAG_TSYNC;
+			flgs |= SECCOMP_FILTER_FLAG_TSYNC;
+		if (col->attr.log_enable)
+			flgs |= SECCOMP_FILTER_FLAG_LOG;
 		rc = syscall(_nr_seccomp, SECCOMP_SET_MODE_FILTER, flgs, prgm);
 		if (rc > 0 && col->attr.tsync_enable)
 			/* always return -ESRCH if we fail to sync threads */

@@ -1,0 +1,23 @@
+Origin: backport, 3570b5cf9acbd1711d417e08ec608eea7b83d416
+From 3570b5cf9acbd1711d417e08ec608eea7b83d416 Mon Sep 17 00:00:00 2001
+From: Paul Moore <paul@paul-moore.com>
+Date: Tue, 30 Apr 2019 16:33:06 -0400
+Subject: [PATCH] db: properly reset the attribute state in db_col_reset()
+
+Signed-off-by: Paul Moore <paul@paul-moore.com>
+---
+ src/db.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+Index: libseccomp-2.4.1/src/db.c
+===================================================================
+--- libseccomp-2.4.1.orig/src/db.c
++++ libseccomp-2.4.1/src/db.c
+@@ -1063,6 +1063,7 @@ int db_col_reset(struct db_filter_col *c
+ 	col->attr.nnp_enable = 1;
+ 	col->attr.tsync_enable = 0;
+ 	col->attr.api_tskip = 0;
++	col->attr.log_enable = 0;
+ 
+ 	/* set the state */
+ 	col->state = _DB_STA_VALID;

@@ -8,7 +8,7 @@ to the rules described here, but by following the instructions below you
 should have a much easier time getting your work merged with the upstream
 project.
 
-* Test Your Code
+## Test Your Code
 
 There are three possible tests you can run to verify your code.  The first
 test is used to check the formatting and coding style of your changes, you
@@ -34,12 +34,23 @@ supports seccomp filters you can run the live tests with the following
 command:
 
 	# make check-build
-	# cd tests
-	# ./regression -T live
+	# (cd tests; ./regression -T live)
 
 ... if there are any faults or errors they will be displayed.
 
-* Generate the Patch(es)
+## Make Sure Your Code is Tested
+
+The libseccomp code includes a fairly extensive test suite and any submissions
+which add functionality, or significantly change the existing code, should
+include additional tests to verify the proper operation of the proposed
+changes.
+
+Code coverage analysis tools have been integrated into the libseccomp code
+base, and can be enabled via the "--enable-code-coverage" configure flag and
+the "check-code-coverage" make target.  Additional details on generating code
+coverage information can be found in the .travis.yml file.
+
+## Generate the Patch(es)
 
 Depending on how you decided to work with the libseccomp code base and what
 tools you are using there are different ways to generate your patch(es).
@@ -62,7 +73,7 @@ When in doubt please generate your patch and try applying it to an unmodified
 copy of the libseccomp sources; if it fails for you, it will fail for the rest
 of us.
 
-* Explain Your Work
+## Explain Your Work
 
 At the top of every patch you should include a description of the problem you
 are trying to solve, how you solved it, and why you chose the solution you
@@ -71,7 +82,7 @@ if you can describe/include a reproducer for the problem in the description as
 well as instructions on how to test for the bug and verify that it has been
 fixed.
 
-* Sign Your Work
+## Sign Your Work
 
 The sign-off is a simple line at the end of the patch description, which
 certifies that you wrote it or otherwise have the right to pass it on as an
@@ -109,7 +120,7 @@ your real name, saying:
 
 	Signed-off-by: Random J Developer <random@developer.example.org>
 
-* Email Your Patch(es)
+## Email Your Patch(es)
 
 Finally, you will need to email your patches to the mailing list so they can
 be reviewed and potentially merged into the main libseccomp repository.  When

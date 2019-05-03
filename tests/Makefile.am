@@ -16,8 +16,19 @@
 # along with this library; if not, see <http://www.gnu.org/licenses>.
 #
 
-AM_LDFLAGS = -static
-LDADD = util.la ../src/libseccomp.la
+@CODE_COVERAGE_RULES@
+
+CODE_COVERAGE_IGNORE_PATTERN = /usr/include/bits/* */arch-syscall-check.c
+
+if CODE_COVERAGE_ENABLED
+DBG_STATIC =
+else
+DBG_STATIC = -static
+endif
+
+AM_LDFLAGS = ${DBG_STATIC} -lpthread
+
+LDADD = util.la ../src/libseccomp.la ${CODE_COVERAGE_LIBS}
 
 check_LTLIBRARIES = util.la
 util_la_SOURCES = util.c util.h
@@ -61,7 +72,24 @@ check_PROGRAMS = \
 	30-sim-socket_syscalls \
 	31-basic-version_check \
 	32-live-tsync_allow \
-	33-sim-socket_syscalls_be
+	33-sim-socket_syscalls_be \
+	34-sim-basic_blacklist \
+	35-sim-negative_one \
+	36-sim-ipc_syscalls \
+	37-sim-ipc_syscalls_be \
+	38-basic-pfc_coverage \
+	39-basic-api_level \
+	40-sim-log \
+	41-sim-syscall_priority_arch \
+	42-sim-adv_chains \
+	43-sim-a2_order \
+	44-live-a2_order \
+	45-sim-chain_code_coverage \
+	46-sim-kill_process \
+	47-live-kill_process \
+	48-sim-32b_args \
+	49-sim-64b_comparisons \
+	50-sim-hash_collision
 
 EXTRA_DIST_TESTPYTHON = \
 	util.py \
@@ -97,7 +125,23 @@ EXTRA_DIST_TESTPYTHON = \
 	30-sim-socket_syscalls.py \
 	31-basic-version_check.py \
 	32-live-tsync_allow.py \
-	33-sim-socket_syscalls_be.py
+	33-sim-socket_syscalls_be.py \
+	34-sim-basic_blacklist.py \
+	35-sim-negative_one.py \
+	36-sim-ipc_syscalls.py \
+	37-sim-ipc_syscalls_be.py \
+	39-basic-api_level.py \
+	40-sim-log.py \
+	41-sim-syscall_priority_arch.py \
+	42-sim-adv_chains.py \
+	43-sim-a2_order.py \
+	44-live-a2_order.py \
+	45-sim-chain_code_coverage.py \
+	46-sim-kill_process.py \
+	47-live-kill_process.py \
+	48-sim-32b_args.py \
+	49-sim-64b_comparisons.py \
+	50-sim-hash_collision.py
 
 EXTRA_DIST_TESTCFGS = \
 	01-sim-allow.tests \
@@ -132,9 +176,29 @@ EXTRA_DIST_TESTCFGS = \
 	30-sim-socket_syscalls.tests \
 	31-basic-version_check.tests \
 	32-live-tsync_allow.tests \
-	33-sim-socket_syscalls_be.tests
+	33-sim-socket_syscalls_be.tests \
+	34-sim-basic_blacklist.tests \
+	35-sim-negative_one.tests \
+	36-sim-ipc_syscalls.tests \
+	37-sim-ipc_syscalls_be.tests \
+	38-basic-pfc_coverage.tests \
+	39-basic-api_level.tests \
+	40-sim-log.tests \
+	41-sim-syscall_priority_arch.tests \
+	42-sim-adv_chains.tests \
+	43-sim-a2_order.tests \
+	44-live-a2_order.tests \
+	45-sim-chain_code_coverage.tests \
+	46-sim-kill_process.tests \
+	47-live-kill_process.tests \
+	48-sim-32b_args.tests \
+	49-sim-64b_comparisons.tests \
+	50-sim-hash_collision.tests
 
-EXTRA_DIST_TESTSCRIPTS = regression testdiff testgen
+EXTRA_DIST_TESTSCRIPTS = \
+	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc
+
+EXTRA_DIST_TESTTOOLS = regression testdiff testgen
 
 EXTRA_DIST_TESTVALGRIND = valgrind_test.supp
 
@@ -142,6 +206,7 @@ EXTRA_DIST = \
 	${EXTRA_DIST_TESTCFGS} \
 	${EXTRA_DIST_TESTPYTHON} \
 	${EXTRA_DIST_TESTSCRIPTS} \
+	${EXTRA_DIST_TESTTOOLS} \
 	${EXTRA_DIST_TESTVALGRIND}
 
 nodist_00_test_SOURCES = 00-test.c

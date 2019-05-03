@@ -1,7 +1,7 @@
 #
 # Seccomp Library Python Bindings
 #
-# Copyright (c) 2012,2013 Red Hat <pmoore@redhat.com>
+# Copyright (c) 2012,2013,2017 Red Hat <pmoore@redhat.com>
 # Author: Paul Moore <paul@paul-moore.com>
 #
 
@@ -29,7 +29,9 @@ based filtering interface that should be familiar to, and easily adopted
 by application developers.
 
 Filter action values:
-    KILL - kill the process
+    KILL_PROCESS - kill the process
+    KILL - kill the thread
+    LOG - allow the syscall to be executed after the action has been logged
     ALLOW - allow the syscall to execute
     TRAP - a SIGSYS signal will be thrown
     ERRNO(x) - syscall will return (x)
@@ -45,7 +47,7 @@ Argument comparison values (see the Arg class):
     EQ - arg == datum_a
     GT - arg > datum_a
     GE - arg >= datum_a
-    MASKED_EQ - (arg & datum_b) == datum_a
+    MASKED_EQ - (arg & datum_a) == datum_b
 
 
 Example:
@@ -68,15 +70,35 @@ Example:
     f.load()
 """
 __author__ =  'Paul Moore <paul@paul-moore.com>'
-__date__ = "7 January 2013"
+__date__ = "3 February 2017"
 
+from cpython.version cimport PY_MAJOR_VERSION
 from libc.stdint cimport uint32_t
 import errno
 
 cimport libseccomp
 
+def c_str(string):
+    """ Convert a Python string to a C string.
+
+    Arguments:
+    string - the Python string
+
+    Description:
+    Convert the Python string into a form usable by C taking into consideration
+    the Python major version, e.g. Python 2.x or Python 3.x.
+    See http://docs.cython.org/en/latest/src/tutorial/strings.html for more
+    information.
+    """
+    if PY_MAJOR_VERSION < 3:
+        return string
+    else:
+        return bytes(string, "ascii")
+
+KILL_PROCESS = libseccomp.SCMP_ACT_KILL_PROCESS
 KILL = libseccomp.SCMP_ACT_KILL
 TRAP = libseccomp.SCMP_ACT_TRAP
+LOG = libseccomp.SCMP_ACT_LOG
 ALLOW = libseccomp.SCMP_ACT_ALLOW
 def ERRNO(int errno):
     """The action ERRNO(x) means that the syscall will return (x).
@@ -121,7 +143,8 @@ def resolve_syscall(arch, syscall):
     cdef char *ret_str
 
     if isinstance(syscall, basestring):
-        return libseccomp.seccomp_syscall_resolve_name_rewrite(arch, syscall)
+        return libseccomp.seccomp_syscall_resolve_name_rewrite(arch,
+                                                               c_str(syscall))
     elif isinstance(syscall, int):
         ret_str = libseccomp.seccomp_syscall_resolve_num_arch(arch, syscall)
         if ret_str is NULL:
@@ -130,6 +153,35 @@ def resolve_syscall(arch, syscall):
             return ret_str
     else:
         raise TypeError("Syscall must either be an int or str type")
+
+def get_api():
+    """ Query the level of API support
+
+    Description:
+    Returns the API level value indicating the current supported
+    functionality.
+    """
+    level = libseccomp.seccomp_api_get()
+    if level < 0:
+        raise RuntimeError(str.format("Library error (errno = {0})", level))
+
+    return level
+
+def set_api(unsigned int level):
+    """ Set the level of API support
+
+    Arguments:
+    level - the API level
+
+    Description:
+    This function forcibly sets the API level at runtime.  General use
+    of this function is strongly discouraged.
+    """
+    rc = libseccomp.seccomp_api_set(level)
+    if rc == -errno.EINVAL:
+        raise ValueError("Invalid level")
+    elif rc != 0:
+        raise RuntimeError(str.format("Library error (errno = {0})", rc))
 
 cdef class Arch:
     """ Python object representing the SyscallFilter architecture values.
@@ -147,6 +199,8 @@ cdef class Arch:
     MIPSEL - MIPS little endian O32 ABI
     MIPSEL64 - MIPS little endian 64-bit ABI
     MIPSEL64N32 - MIPS little endian N32 ABI
+    PARISC - 32-bit PA-RISC
+    PARISC64 - 64-bit PA-RISC
     PPC64 - 64-bit PowerPC
     PPC - 32-bit PowerPC
     """
@@ -165,6 +219,8 @@ cdef class Arch:
     MIPSEL = libseccomp.SCMP_ARCH_MIPSEL
     MIPSEL64 = libseccomp.SCMP_ARCH_MIPSEL64
     MIPSEL64N32 = libseccomp.SCMP_ARCH_MIPSEL64N32
+    PARISC = libseccomp.SCMP_ARCH_PARISC
+    PARISC64 = libseccomp.SCMP_ARCH_PARISC64
     PPC = libseccomp.SCMP_ARCH_PPC
     PPC64 = libseccomp.SCMP_ARCH_PPC64
     PPC64LE = libseccomp.SCMP_ARCH_PPC64LE
@@ -205,6 +261,10 @@ cdef class Arch:
                 self._token = libseccomp.SCMP_ARCH_MIPSEL64
             elif arch == libseccomp.SCMP_ARCH_MIPSEL64N32:
                 self._token = libseccomp.SCMP_ARCH_MIPSEL64N32
+            elif arch == libseccomp.SCMP_ARCH_PARISC:
+                self._token = libseccomp.SCMP_ARCH_PARISC
+            elif arch == libseccomp.SCMP_ARCH_PARISC64:
+                self._token = libseccomp.SCMP_ARCH_PARISC64
             elif arch == libseccomp.SCMP_ARCH_PPC:
                 self._token = libseccomp.SCMP_ARCH_PPC
             elif arch == libseccomp.SCMP_ARCH_PPC64:
@@ -218,7 +278,7 @@ cdef class Arch:
             else:
                 self._token = 0;
         elif isinstance(arch, basestring):
-            self._token = libseccomp.seccomp_arch_resolve_name(arch)
+            self._token = libseccomp.seccomp_arch_resolve_name(c_str(arch))
         else:
             raise TypeError("Architecture must be an int or str type")
         if self._token == 0:
@@ -246,6 +306,8 @@ cdef class Attr:
     ACT_BADARCH = libseccomp.SCMP_FLTATR_ACT_BADARCH
     CTL_NNP = libseccomp.SCMP_FLTATR_CTL_NNP
     CTL_TSYNC = libseccomp.SCMP_FLTATR_CTL_TSYNC
+    API_TSKIP = libseccomp.SCMP_FLTATR_API_TSKIP
+    CTL_LOG = libseccomp.SCMP_FLTATR_CTL_LOG
 
 cdef class Arg:
     """ Python object representing a SyscallFilter syscall argument.
@@ -485,7 +547,8 @@ cdef class SyscallFilter:
         """ Add a new rule to filter.
 
         Arguments:
-        action - the rule action: KILL, TRAP, ERRNO(), TRACE(), or ALLOW
+        action - the rule action: KILL_PROCESS, KILL, TRAP, ERRNO(), TRACE(),
+                 LOG, or ALLOW
         syscall - the syscall name or number
         args - variable number of Arg objects
 
@@ -567,7 +630,8 @@ cdef class SyscallFilter:
         """ Add a new rule to filter.
 
         Arguments:
-        action - the rule action: KILL, TRAP, ERRNO(), TRACE(), or ALLOW
+        action - the rule action: KILL_PROCESS, KILL, TRAP, ERRNO(), TRACE(),
+                 LOG, or ALLOW
         syscall - the syscall name or number
         args - variable number of Arg objects
 

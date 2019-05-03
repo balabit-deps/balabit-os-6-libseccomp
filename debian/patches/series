@@ -1,2 +1,1 @@
-28-parisc_support.patch
-add-log-action.patch
+db-properly-reset-attribute-state.patch

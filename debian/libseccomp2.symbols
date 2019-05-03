@@ -1,5 +1,7 @@
 libseccomp.so.2 libseccomp2 #MINVER#
 * Build-Depends-Package: libseccomp-dev
+ seccomp_api_get@Base 2.4.0
+ seccomp_api_set@Base 2.4.0
  seccomp_attr_get@Base 0.0.0~20120605
  seccomp_attr_set@Base 0.0.0~20120605
  seccomp_export_bpf@Base 0.0.0~20120605

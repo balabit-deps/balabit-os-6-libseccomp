@@ -55,13 +55,17 @@ struct db_filter_col;
  * The ordering ensures that a min_t() over composed return values always
  * selects the least permissive choice.
  */
-#define SECCOMP_RET_KILL	0x00000000U /* kill the task immediately */
+#define SECCOMP_RET_KILL_PROCESS 0x80000000U /* kill the process immediately */
+#define SECCOMP_RET_KILL_THREAD	0x00000000U /* kill the thread immediately */
+#define SECCOMP_RET_KILL	SECCOMP_RET_KILL_THREAD /* default to killing the thread */
 #define SECCOMP_RET_TRAP	0x00030000U /* disallow and force a SIGSYS */
 #define SECCOMP_RET_ERRNO	0x00050000U /* returns an errno */
 #define SECCOMP_RET_TRACE	0x7ff00000U /* pass to a tracer or disallow */
+#define SECCOMP_RET_LOG		0x7ffc0000U /* allow after logging */
 #define SECCOMP_RET_ALLOW	0x7fff0000U /* allow */
 
 /* Masks for the return value sections. */
+#define SECCOMP_RET_ACTION_FULL 0xffff0000U
 #define SECCOMP_RET_ACTION	0x7fff0000U
 #define SECCOMP_RET_DATA	0x0000ffffU
 
@@ -102,14 +106,40 @@ typedef struct sock_filter bpf_instr_raw;
 #ifndef SECCOMP_SET_MODE_FILTER
 #define SECCOMP_SET_MODE_FILTER		1
 #endif
+#ifndef SECCOMP_GET_ACTION_AVAIL
+#define SECCOMP_GET_ACTION_AVAIL	2
+#endif
 
 /* flags for the seccomp() syscall */
 #ifndef SECCOMP_FILTER_FLAG_TSYNC
-#define SECCOMP_FILTER_FLAG_TSYNC	1
+#define SECCOMP_FILTER_FLAG_TSYNC	(1UL << 0)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_LOG
+#define SECCOMP_FILTER_FLAG_LOG		(1UL << 1)
+#endif
+
+/* SECCOMP_RET_ACTION_FULL was added in kernel v4.14.  It may not be
+ * defined on older kernels
+ */
+#ifndef SECCOMP_RET_ACTION_FULL
+#define SECCOMP_RET_ACTION_FULL		0xffff0000U
+#endif
+
+/* SECCOMP_RET_LOG was added in kernel v4.14.  It may not be defined on
+ * older kernels.
+ */
+#ifndef SECCOMP_RET_LOG
+#define SECCOMP_RET_LOG			0x7fc00000U
 #endif
 
 int sys_chk_seccomp_syscall(void);
+void sys_set_seccomp_syscall(bool enable);
+
+int sys_chk_seccomp_action(uint32_t action);
+void sys_set_seccomp_action(uint32_t action, bool enable);
+
 int sys_chk_seccomp_flag(int flag);
+void sys_set_seccomp_flag(int flag, bool enable);
 
 int sys_filter_load(const struct db_filter_col *col);
 

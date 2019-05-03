@@ -44,6 +44,8 @@ const struct scmp_version library_version = {
 	.micro = SCMP_VER_MICRO,
 };
 
+unsigned int seccomp_api_level = 0;
+
 /**
  * Validate a filter context
  * @param ctx the filter context
@@ -65,17 +67,96 @@ static int _ctx_valid(const scmp_filter_ctx *ctx)
  * syscall appears valid, negative values on failure.
  *
  */
-static int _syscall_valid(int syscall)
+static int _syscall_valid(const struct db_filter_col *col, int syscall)
 {
+	/* syscall -1 is used by tracers to skip the syscall */
+	if (col->attr.api_tskip && syscall == -1)
+		return 0;
 	if (syscall <= -1 && syscall >= -99)
 		return -EINVAL;
 	return 0;
+}
+
+/**
+ * Update the API level
+ *
+ * This function performs a series of tests to determine what functionality is
+ * supported given the current running environment (kernel, etc.).  It is
+ * important to note that this function only does meaningful checks the first
+ * time it is run, the resulting API level is cached after this first run and
+ * used for all subsequent calls.  The API level value is returned.
+ *
+ */
+static unsigned int _seccomp_api_update(void)
+{
+	unsigned int level = 1;
+
+	/* if seccomp_api_level > 0 then it's already been set, we're done */
+	if (seccomp_api_level >= 1)
+		return seccomp_api_level;
+
+	/* NOTE: level 1 is the base level, start checking at 2 */
+
+	/* level 2 */
+	if (sys_chk_seccomp_syscall() &&
+	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC) == 1)
+		level = 2;
+
+	/* level 3 */
+	if (level == 2 &&
+	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_LOG) == 1 &&
+	    sys_chk_seccomp_action(SCMP_ACT_LOG) == 1)
+		level = 3;
+
+	/* update the stored api level and return */
+	seccomp_api_level = level;
+	return seccomp_api_level;
 }
 
 /* NOTE - function header comment in include/seccomp.h */
 API const struct scmp_version *seccomp_version(void)
 {
 	return &library_version;
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API unsigned int seccomp_api_get(void)
+{
+	/* update the api level, if needed */
+	return _seccomp_api_update();
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_api_set(unsigned int level)
+{
+	switch (level) {
+	case 1:
+		sys_set_seccomp_syscall(false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, false);
+		sys_set_seccomp_action(SCMP_ACT_LOG, false);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, false);
+		break;
+	case 2:
+		sys_set_seccomp_syscall(true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, false);
+		sys_set_seccomp_action(SCMP_ACT_LOG, false);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, false);
+		break;
+	case 3:
+		sys_set_seccomp_syscall(true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, true);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	seccomp_api_level = level;
+	return 0;
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -168,14 +249,12 @@ API int seccomp_arch_add(scmp_filter_ctx ctx, uint32_t arch_token)
 	if (arch_token == 0)
 		arch_token = arch_def_native->token;
 
-	if (arch_valid(arch_token))
+	arch = arch_def_lookup(arch_token);
+	if (arch == NULL)
 		return -EINVAL;
 	if (db_col_arch_exist(col, arch_token))
 		return -EEXIST;
 
-	arch = arch_def_lookup(arch_token);
-	if (arch == NULL)
-		return -EFAULT;
 	return db_col_db_new(col, arch);
 }
 
@@ -311,7 +390,7 @@ API int seccomp_syscall_priority(scmp_filter_ctx ctx,
 {
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
-	if (db_col_valid(col) || _syscall_valid(syscall))
+	if (db_col_valid(col) || _syscall_valid(col, syscall))
 		return -EINVAL;
 
 	return db_col_syscall_priority(col, syscall, priority);
@@ -331,7 +410,7 @@ API int seccomp_rule_add_array(scmp_filter_ctx ctx,
 	if (arg_cnt > 0 && arg_array == NULL)
 		return -EINVAL;
 
-	if (db_col_valid(col) || _syscall_valid(syscall))
+	if (db_col_valid(col) || _syscall_valid(col, syscall))
 		return -EINVAL;
 
 	rc = db_action_valid(action);
@@ -380,7 +459,7 @@ API int seccomp_rule_add_exact_array(scmp_filter_ctx ctx,
 	if (arg_cnt > 0 && arg_array == NULL)
 		return -EINVAL;
 
-	if (db_col_valid(col) || _syscall_valid(syscall))
+	if (db_col_valid(col) || _syscall_valid(col, syscall))
 		return -EINVAL;
 
 	rc = db_action_valid(action);

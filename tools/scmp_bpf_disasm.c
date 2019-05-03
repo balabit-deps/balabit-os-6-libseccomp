@@ -131,6 +131,12 @@ static const char *bpf_decode_op(const bpf_instr_raw *bpf)
 	case BPF_ALU+BPF_NEG+BPF_K:
 	case BPF_ALU+BPF_NEG+BPF_X:
 		return "neg";
+	case BPF_ALU+BPF_MOD+BPF_K:
+	case BPF_ALU+BPF_MOD+BPF_X:
+		return "mod";
+	case BPF_ALU+BPF_XOR+BPF_K:
+	case BPF_ALU+BPF_XOR+BPF_X:
+		return "xor";
 	case BPF_JMP+BPF_JA+BPF_K:
 	case BPF_JMP+BPF_JA+BPF_X:
 		return "jmp";
@@ -167,11 +173,14 @@ static const char *bpf_decode_op(const bpf_instr_raw *bpf)
  */
 static void bpf_decode_action(uint32_t k)
 {
-	uint32_t act = k & SECCOMP_RET_ACTION;
+	uint32_t act = k & SECCOMP_RET_ACTION_FULL;
 	uint32_t data = k & SECCOMP_RET_DATA;
 
 	switch (act) {
-	case SECCOMP_RET_KILL:
+	case SECCOMP_RET_KILL_PROCESS:
+		printf("KILL_PROCESS");
+		break;
+	case SECCOMP_RET_KILL_THREAD:
 		printf("KILL");
 		break;
 	case SECCOMP_RET_TRAP:
@@ -182,6 +191,9 @@ static void bpf_decode_action(uint32_t k)
 		break;
 	case SECCOMP_RET_TRACE:
 		printf("TRACE(%u)", data);
+		break;
+	case SECCOMP_RET_LOG:
+		printf("LOG");
 		break;
 	case SECCOMP_RET_ALLOW:
 		printf("ALLOW");

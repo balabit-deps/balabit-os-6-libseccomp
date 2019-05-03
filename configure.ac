@@ -19,7 +19,7 @@ dnl #
 dnl ####
 dnl libseccomp defines
 dnl ####
-AC_INIT([libseccomp], [2.3.1])
+AC_INIT([libseccomp], [2.4.1])
 
 dnl ####
 dnl autoconf configuration
@@ -112,6 +112,7 @@ AS_IF([test "$enable_python" = yes], [
 	AS_IF([test "$CYTHON_VER_MAJ" -eq 0 -a "$CYTHON_VER_MIN" -lt 16], [
 		AC_MSG_ERROR([python bindings require cython 0.16 or higher])
 	])
+	AM_PATH_PYTHON
 ])
 AM_CONDITIONAL([ENABLE_PYTHON], [test "$enable_python" = yes])
 AC_DEFINE_UNQUOTED([ENABLE_PYTHON],
@@ -123,6 +124,12 @@ dnl coverity checks
 dnl ####
 AC_CHECK_PROG(have_coverity, cov-build, "yes", "no")
 AM_CONDITIONAL(COVERITY, test "$have_coverity" = yes)
+
+dnl ####
+dnl code coverage checks
+dnl -> https://www.gnu.org/software/autoconf-archive/ax_code_coverage.html
+dnl ####
+AX_CODE_COVERAGE
 
 dnl ####
 dnl version dependent files

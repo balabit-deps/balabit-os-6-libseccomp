@@ -36,7 +36,7 @@ extern "C" {
  */
 
 #define SCMP_VER_MAJOR		2
-#define SCMP_VER_MINOR		3
+#define SCMP_VER_MINOR		4
 #define SCMP_VER_MICRO		1
 
 struct scmp_version {
@@ -63,6 +63,8 @@ enum scmp_filter_attr {
 	SCMP_FLTATR_ACT_BADARCH = 2,	/**< bad architecture action */
 	SCMP_FLTATR_CTL_NNP = 3,	/**< set NO_NEW_PRIVS on filter load */
 	SCMP_FLTATR_CTL_TSYNC = 4,	/**< sync threads on filter load */
+	SCMP_FLTATR_API_TSKIP = 5,	/**< allow rules with a -1 syscall */
+	SCMP_FLTATR_CTL_LOG = 6,	/**< log not-allowed actions */
 	_SCMP_FLTATR_MAX,
 };
 
@@ -185,49 +187,116 @@ struct scmp_arg_cmp {
 #define SCMP_ARCH_S390X		AUDIT_ARCH_S390X
 
 /**
+ * The PA-RISC hppa architecture tokens
+ */
+#define SCMP_ARCH_PARISC	AUDIT_ARCH_PARISC
+#define SCMP_ARCH_PARISC64	AUDIT_ARCH_PARISC64
+
+/**
  * Convert a syscall name into the associated syscall number
  * @param x the syscall name
  */
 #define SCMP_SYS(x)		(__NR_##x)
 
+/* Helpers for the argument comparison macros, DO NOT USE directly */
+#define _SCMP_VA_NUM_ARGS(...)	_SCMP_VA_NUM_ARGS_IMPL(__VA_ARGS__,2,1)
+#define _SCMP_VA_NUM_ARGS_IMPL(_1,_2,N,...)	N
+#define _SCMP_MACRO_DISPATCHER(func, ...) \
+	_SCMP_MACRO_DISPATCHER_IMPL1(func, _SCMP_VA_NUM_ARGS(__VA_ARGS__))
+#define _SCMP_MACRO_DISPATCHER_IMPL1(func, nargs) \
+	_SCMP_MACRO_DISPATCHER_IMPL2(func, nargs)
+#define _SCMP_MACRO_DISPATCHER_IMPL2(func, nargs) \
+	func ## nargs
+#define _SCMP_CMP32_1(x, y, z) \
+	SCMP_CMP64(x, y, (uint32_t)(z))
+#define _SCMP_CMP32_2(x, y, z, q) \
+	SCMP_CMP64(x, y, (uint32_t)(z), (uint32_t)(q))
+
 /**
- * Specify an argument comparison struct for use in declaring rules
+ * Specify a 64-bit argument comparison struct for use in declaring rules
  * @param arg the argument number, starting at 0
  * @param op the comparison operator, e.g. SCMP_CMP_*
  * @param datum_a dependent on comparison
  * @param datum_b dependent on comparison, optional
  */
-#define SCMP_CMP(...)		((struct scmp_arg_cmp){__VA_ARGS__})
+#define SCMP_CMP64(...)		((struct scmp_arg_cmp){__VA_ARGS__})
+#define SCMP_CMP		SCMP_CMP64
 
 /**
- * Specify an argument comparison struct for argument 0
+ * Specify a 32-bit argument comparison struct for use in declaring rules
+ * @param arg the argument number, starting at 0
+ * @param op the comparison operator, e.g. SCMP_CMP_*
+ * @param datum_a dependent on comparison (32-bits)
+ * @param datum_b dependent on comparison, optional (32-bits)
  */
-#define SCMP_A0(...)		SCMP_CMP(0, __VA_ARGS__)
+#define SCMP_CMP32(x, y, ...) \
+	_SCMP_MACRO_DISPATCHER(_SCMP_CMP32_, __VA_ARGS__)(x, y, __VA_ARGS__)
 
 /**
- * Specify an argument comparison struct for argument 1
+ * Specify a 64-bit argument comparison struct for argument 0
  */
-#define SCMP_A1(...)		SCMP_CMP(1, __VA_ARGS__)
+#define SCMP_A0_64(...)		SCMP_CMP64(0, __VA_ARGS__)
+#define SCMP_A0			SCMP_A0_64
 
 /**
- * Specify an argument comparison struct for argument 2
+ * Specify a 32-bit argument comparison struct for argument 0
  */
-#define SCMP_A2(...)		SCMP_CMP(2, __VA_ARGS__)
+#define SCMP_A0_32(x, ...)	SCMP_CMP32(0, x, __VA_ARGS__)
 
 /**
- * Specify an argument comparison struct for argument 3
+ * Specify a 64-bit argument comparison struct for argument 1
  */
-#define SCMP_A3(...)		SCMP_CMP(3, __VA_ARGS__)
+#define SCMP_A1_64(...)		SCMP_CMP64(1, __VA_ARGS__)
+#define SCMP_A1			SCMP_A1_64
 
 /**
- * Specify an argument comparison struct for argument 4
+ * Specify a 32-bit argument comparison struct for argument 1
  */
-#define SCMP_A4(...)		SCMP_CMP(4, __VA_ARGS__)
+#define SCMP_A1_32(x, ...)	SCMP_CMP32(1, x, __VA_ARGS__)
 
 /**
- * Specify an argument comparison struct for argument 5
+ * Specify a 64-bit argument comparison struct for argument 2
  */
-#define SCMP_A5(...)		SCMP_CMP(5, __VA_ARGS__)
+#define SCMP_A2_64(...)		SCMP_CMP64(2, __VA_ARGS__)
+#define SCMP_A2			SCMP_A2_64
+
+/**
+ * Specify a 32-bit argument comparison struct for argument 2
+ */
+#define SCMP_A2_32(x, ...)	SCMP_CMP32(2, x, __VA_ARGS__)
+
+/**
+ * Specify a 64-bit argument comparison struct for argument 3
+ */
+#define SCMP_A3_64(...)		SCMP_CMP64(3, __VA_ARGS__)
+#define SCMP_A3			SCMP_A3_64
+
+/**
+ * Specify a 32-bit argument comparison struct for argument 3
+ */
+#define SCMP_A3_32(x, ...)	SCMP_CMP32(3, x, __VA_ARGS__)
+
+/**
+ * Specify a 64-bit argument comparison struct for argument 4
+ */
+#define SCMP_A4_64(...)		SCMP_CMP64(4, __VA_ARGS__)
+#define SCMP_A4			SCMP_A4_64
+
+/**
+ * Specify a 32-bit argument comparison struct for argument 4
+ */
+#define SCMP_A4_32(x, ...)	SCMP_CMP32(4, x, __VA_ARGS__)
+
+/**
+ * Specify a 64-bit argument comparison struct for argument 5
+ */
+#define SCMP_A5_64(...)		SCMP_CMP64(5, __VA_ARGS__)
+#define SCMP_A5			SCMP_A5_64
+
+/**
+ * Specify a 32-bit argument comparison struct for argument 5
+ */
+#define SCMP_A5_32(x, ...)	SCMP_CMP32(5, x, __VA_ARGS__)
 
 /*
  * seccomp actions
@@ -236,7 +305,15 @@ struct scmp_arg_cmp {
 /**
  * Kill the process
  */
-#define SCMP_ACT_KILL		0x00000000U
+#define SCMP_ACT_KILL_PROCESS	0x80000000U
+/**
+ * Kill the thread
+ */
+#define SCMP_ACT_KILL_THREAD	0x00000000U
+/**
+ * Kill the thread, defined for backward compatibility
+ */
+#define SCMP_ACT_KILL		SCMP_ACT_KILL_THREAD
 /**
  * Throw a SIGSYS signal
  */
@@ -249,6 +326,10 @@ struct scmp_arg_cmp {
  * Notify a tracing process with the specified value
  */
 #define SCMP_ACT_TRACE(x)	(0x7ff00000U | ((x) & 0x0000ffffU))
+/**
+ * Allow the syscall to be executed after the action has been logged
+ */
+#define SCMP_ACT_LOG		0x7ffc0000U
 /**
  * Allow the syscall to be executed
  */
@@ -266,6 +347,39 @@ struct scmp_arg_cmp {
  *
  */
 const struct scmp_version *seccomp_version(void);
+
+/**
+ * Query the library's level of API support
+ *
+ * This function returns an API level value indicating the current supported
+ * functionality.  It is important to note that this level of support is
+ * determined at runtime and therefore can change based on the running kernel
+ * and system configuration (e.g. any previously loaded seccomp filters).  This
+ * function can be called multiple times, but it only queries the system the
+ * first time it is called, the API level is cached and used in subsequent
+ * calls.
+ *
+ * The current API levels are described below:
+ *  0 : reserved
+ *  1 : base level
+ *  2 : support for the SCMP_FLTATR_CTL_TSYNC filter attribute
+ *      uses the seccomp(2) syscall instead of the prctl(2) syscall
+ *  3 : support for the SCMP_FLTATR_CTL_LOG filter attribute
+ *      support for the SCMP_ACT_LOG action
+ *      support for the SCMP_ACT_KILL_PROCESS action
+ *
+ */
+unsigned int seccomp_api_get(void);
+
+/**
+ * Set the library's level of API support
+ *
+ * This function forcibly sets the API level of the library at runtime.  Valid
+ * API levels are discussed in the description of the seccomp_api_get()
+ * function.  General use of this function is strongly discouraged.
+ *
+ */
+int seccomp_api_set(unsigned int level);
 
 /**
  * Initialize the filter state
@@ -360,8 +474,8 @@ int seccomp_arch_exist(const scmp_filter_ctx ctx, uint32_t arch_token);
  * Any new rules added after this function successfully returns will be added
  * to this architecture but existing rules will not be added to this
  * architecture.  If the architecture token is SCMP_ARCH_NATIVE then the native
- * architecture will be assumed.  Returns zero on success, negative values on
- * failure.
+ * architecture will be assumed.  Returns zero on success, -EEXIST if
+ * specified architecture is already present, other negative values on failure.
  *
  */
 int seccomp_arch_add(scmp_filter_ctx ctx, uint32_t arch_token);
@@ -1538,11 +1652,6 @@ int seccomp_export_bpf(const scmp_filter_ctx ctx, int fd);
 #define __NR_spu_run		__PNR_spu_run
 #endif /* __NR_spu_run */
 
-#define __PNR_subpage_prot	-10189
-#ifndef __NR_subpage_prot
-#define __NR_subpage_prot	__PNR_subpage_prot
-#endif /* __NR_subpage_prot */
-
 #define __PNR_swapcontext	-10190
 #ifndef __NR_swapcontext
 #define __NR_swapcontext	__PNR_swapcontext
@@ -1602,6 +1711,60 @@ int seccomp_export_bpf(const scmp_filter_ctx ctx, int fd);
 #ifndef __NR_userfaultfd
 #define __NR_userfaultfd	__PNR_userfaultfd
 #endif /* __NR_userfaultfd */
+
+#define __PNR_pkey_mprotect	-10201
+#ifndef __NR_pkey_mprotect
+#define __NR_pkey_mprotect	__PNR_pkey_mprotect
+#endif /* __NR_pkey_mprotect */
+
+#define __PNR_pkey_alloc	-10202
+#ifndef __NR_pkey_alloc
+#define __NR_pkey_alloc	__PNR_pkey_alloc
+#endif /* __NR_pkey_alloc */
+
+#define __PNR_pkey_free		-10203
+#ifndef __NR_pkey_free
+#define __NR_pkey_free		__PNR_pkey_free
+#endif /* __NR_pkey_free */
+
+#define __PNR_get_tls		-10204
+#ifndef __NR_get_tls
+#ifdef __ARM_NR_get_tls
+#define __NR_get_tls		__ARM_NR_get_tls
+#else
+#define __NR_get_tls		__PNR_get_tls
+#endif
+#endif /* __NR_get_tls */
+
+#define __PNR_s390_guarded_storage	-10205
+#ifndef __NR_s390_guarded_storage
+#define __NR_s390_guarded_storage	__PNR_s390_guarded_storage
+#endif /* __NR_s390_guarded_storage */
+
+#define __PNR_s390_sthyi	-10206
+#ifndef __NR_s390_sthyi
+#define __NR_s390_sthyi		__PNR_s390_sthyi
+#endif /* __NR_s390_sthyi */
+
+#define __PNR_subpage_prot	-10207
+#ifndef __NR_subpage_prot
+#define __NR_subpage_prot	__PNR_subpage_prot
+#endif /* __NR_subpage_prot */
+
+#define __PNR_statx		-10208
+#ifndef __NR_statx
+#define __NR_statx		__PNR_statx
+#endif /* __NR_statx */
+
+#define __PNR_io_pgetevents	-10209
+#ifndef __NR_io_pgetevents
+#define __NR_io_pgetevents	__PNR_io_pgetevents
+#endif /* __NR_io_pgetevents */
+
+#define __PNR_rseq		-10210
+#ifndef __NR_rseq
+#define __NR_rseq		__PNR_rseq
+#endif /* __NR_rseq */
 
 #ifdef __cplusplus
 }

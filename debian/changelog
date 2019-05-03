@@ -1,3 +1,19 @@
+libseccomp (2.4.1-0ubuntu0.16.04.2) xenial-security; urgency=medium
+
+  [ Marc Deslauriers ]
+  * Updated to new upstream 2.4.1 version to fix security issue.
+    - CVE-2019-9893
+  * debian/patches/*: removed, all included in new version.
+  * debian/control: add valgrind to Build-Depends to get more unit tests.
+  * debian/libseccomp2.symbols: added new symbols.
+  * debian/docs: removed, new version doesn't have README file.
+
+  [ Jamie Strandboge ]
+  * db-properly-reset-attribute-state.patch: db: properly reset the attribute
+    state in db_col_reset()
+
+ -- Jamie Strandboge <jamie@ubuntu.com>  Fri, 03 May 2019 20:10:57 +0000
+
 libseccomp (2.3.1-2.1ubuntu2~16.04.1) xenial; urgency=medium
 
   * Backport libseccomp 2.3.1 to xenial LP: #1682102
