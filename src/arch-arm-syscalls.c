@@ -37,7 +37,7 @@
 #define __SCMP_NR_BASE			__SCMP_NR_OABI_SYSCALL_BASE
 #endif
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def arm_syscall_table[] = { \
 	/* NOTE: arm_sync_file_range() and sync_file_range2() share values */
 	{ "_llseek", (__SCMP_NR_BASE + 140) },
@@ -134,6 +134,7 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "get_mempolicy", (__SCMP_NR_BASE + 320) },
 	{ "get_robust_list", (__SCMP_NR_BASE + 339) },
 	{ "get_thread_area", __PNR_get_thread_area },
+	{ "get_tls", (__SCMP_NR_BASE + (__SCMP_ARM_NR_BASE + 6)) },
 	{ "getcpu", (__SCMP_NR_BASE + 345) },
 	{ "getcwd", (__SCMP_NR_BASE + 183) },
 	{ "getdents", (__SCMP_NR_BASE + 141) },
@@ -179,6 +180,7 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "io_cancel", (__SCMP_NR_BASE + 247) },
 	{ "io_destroy", (__SCMP_NR_BASE + 244) },
 	{ "io_getevents", (__SCMP_NR_BASE + 245) },
+	{ "io_pgetevents", (__SCMP_NR_BASE + 399) },
 	{ "io_setup", (__SCMP_NR_BASE + 243) },
 	{ "io_submit", (__SCMP_NR_BASE + 246) },
 	{ "ioctl", (__SCMP_NR_BASE + 54) },
@@ -266,11 +268,15 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "pipe", (__SCMP_NR_BASE + 42) },
 	{ "pipe2", (__SCMP_NR_BASE + 359) },
 	{ "pivot_root", (__SCMP_NR_BASE + 218) },
+	{ "pkey_alloc", (__SCMP_NR_BASE + 395) },
+	{ "pkey_free", (__SCMP_NR_BASE + 396) },
+	{ "pkey_mprotect", (__SCMP_NR_BASE + 394) },
 	{ "poll", (__SCMP_NR_BASE + 168) },
 	{ "ppoll", (__SCMP_NR_BASE + 336) },
 	{ "prctl", (__SCMP_NR_BASE + 172) },
 	{ "pread64", (__SCMP_NR_BASE + 180) },
 	{ "preadv", (__SCMP_NR_BASE + 361) },
+	{ "preadv2", (__SCMP_NR_BASE + 392) },
 	{ "prlimit64", (__SCMP_NR_BASE + 369) },
 	{ "process_vm_readv", (__SCMP_NR_BASE + 376) },
 	{ "process_vm_writev", (__SCMP_NR_BASE + 377) },
@@ -281,6 +287,7 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "putpmsg", __PNR_putpmsg },
 	{ "pwrite64", (__SCMP_NR_BASE + 181) },
 	{ "pwritev", (__SCMP_NR_BASE + 362) },
+	{ "pwritev2", (__SCMP_NR_BASE + 393) },
 	{ "query_module", __PNR_query_module },
 	{ "quotactl", (__SCMP_NR_BASE + 131) },
 	{ "read", (__SCMP_NR_BASE +  3) },
@@ -302,6 +309,7 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "request_key", (__SCMP_NR_BASE + 310) },
 	{ "restart_syscall", (__SCMP_NR_BASE +  0) },
 	{ "rmdir", (__SCMP_NR_BASE + 40) },
+	{ "rseq", (__SCMP_NR_BASE + 398) },
 	{ "rt_sigaction", (__SCMP_NR_BASE + 174) },
 	{ "rt_sigpending", (__SCMP_NR_BASE + 176) },
 	{ "rt_sigprocmask", (__SCMP_NR_BASE + 175) },
@@ -311,9 +319,11 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "rt_sigtimedwait", (__SCMP_NR_BASE + 177) },
 	{ "rt_tgsigqueueinfo", (__SCMP_NR_BASE + 363) },
 	{ "rtas", __PNR_rtas },
+	{ "s390_guarded_storage", __PNR_s390_guarded_storage },
 	{ "s390_pci_mmio_read", __PNR_s390_pci_mmio_read },
 	{ "s390_pci_mmio_write", __PNR_s390_pci_mmio_write },
 	{ "s390_runtime_instr", __PNR_s390_runtime_instr },
+	{ "s390_sthyi", __PNR_s390_sthyi },
 	{ "sched_get_priority_max", (__SCMP_NR_BASE + 159) },
 	{ "sched_get_priority_min", (__SCMP_NR_BASE + 160) },
 	{ "sched_getaffinity", (__SCMP_NR_BASE + 242) },
@@ -399,6 +409,7 @@ const struct arch_syscall_def arm_syscall_table[] = { \
 	{ "stat64", (__SCMP_NR_BASE + 195) },
 	{ "statfs", (__SCMP_NR_BASE + 99) },
 	{ "statfs64", (__SCMP_NR_BASE + 266) },
+	{ "statx", (__SCMP_NR_BASE + 397) },
 	{ "stime", __PNR_stime },
 	{ "stty", __PNR_stty },
 	{ "subpage_prot", __PNR_subpage_prot },
@@ -513,15 +524,15 @@ const char *arm_syscall_resolve_num(int num)
 }
 
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *arm_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *arm_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return arm_syscall_table[spot].name;
+	return &arm_syscall_table[spot];
 }

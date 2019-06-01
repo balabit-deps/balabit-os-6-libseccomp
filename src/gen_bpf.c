@@ -39,6 +39,7 @@
 #include "db.h"
 #include "hash.h"
 #include "system.h"
+#include "helper.h"
 
 /* allocation increments */
 #define AINC_BLK			2
@@ -202,7 +203,7 @@ static struct bpf_blk *_hsh_find(const struct bpf_state *state, uint64_t h_val);
  * Convert the endianess of the supplied value and return it to the caller.
  *
  */
-uint16_t _htot16(const struct arch_def *arch, uint16_t val)
+static uint16_t _htot16(const struct arch_def *arch, uint16_t val)
 {
 	if (arch->endian == ARCH_ENDIAN_LITTLE)
 		return htole16(val);
@@ -218,7 +219,7 @@ uint16_t _htot16(const struct arch_def *arch, uint16_t val)
  * Convert the endianess of the supplied value and return it to the caller.
  *
  */
-uint32_t _htot32(const struct arch_def *arch, uint32_t val)
+static uint32_t _htot32(const struct arch_def *arch, uint32_t val)
 {
 	if (arch->endian == ARCH_ENDIAN_LITTLE)
 		return htole32(val);
@@ -314,11 +315,9 @@ static struct bpf_blk *_blk_alloc(void)
 {
 	struct bpf_blk *blk;
 
-	blk = malloc(sizeof(*blk));
+	blk = zmalloc(sizeof(*blk));
 	if (blk == NULL)
 		return NULL;
-
-	memset(blk, 0, sizeof(*blk));
 	blk->flag_unique = true;
 	blk->acc_start = _ACC_STATE_UNDEF;
 	blk->acc_end = _ACC_STATE_UNDEF;
@@ -477,9 +476,6 @@ static int _bpf_append_blk(struct bpf_program *prg, const struct bpf_blk *blk)
 			goto bpf_append_blk_failure;
 		}
 		switch (blk->blks[iter].k.type) {
-		case TGT_NONE:
-			i_iter->k = 0;
-			break;
 		case TGT_K:
 			i_iter->k = blk->blks[iter].k.tgt.imm_k;
 			break;
@@ -560,7 +556,7 @@ static void _state_release(struct bpf_state *state)
 static int _hsh_add(struct bpf_state *state, struct bpf_blk **blk_p,
 		    unsigned int found)
 {
-	uint64_t h_val;
+	uint64_t h_val, h_val_tmp[3];
 	struct bpf_hash_bkt *h_new, *h_iter, *h_prev = NULL;
 	struct bpf_blk *blk = *blk_p;
 	struct bpf_blk *b_iter;
@@ -568,13 +564,15 @@ static int _hsh_add(struct bpf_state *state, struct bpf_blk **blk_p,
 	if (blk->flag_hash)
 		return 0;
 
-	h_new = malloc(sizeof(*h_new));
+	h_new = zmalloc(sizeof(*h_new));
 	if (h_new == NULL)
 		return -ENOMEM;
-	memset(h_new, 0, sizeof(*h_new));
 
 	/* generate the hash */
-	h_val = jhash(blk->blks, _BLK_MSZE(blk), 0);
+	h_val_tmp[0] = hash(blk->blks, _BLK_MSZE(blk));
+	h_val_tmp[1] = hash(&blk->acc_start, sizeof(blk->acc_start));
+	h_val_tmp[2] = hash(&blk->acc_end, sizeof(blk->acc_end));
+	h_val = hash(h_val_tmp, sizeof(h_val_tmp));
 	blk->hash = h_val;
 	blk->flag_hash = true;
 	blk->node = NULL;
@@ -589,7 +587,11 @@ hsh_add_restart:
 			if ((h_iter->blk->hash == h_val) &&
 			    (_BLK_MSZE(h_iter->blk) == _BLK_MSZE(blk)) &&
 			    (memcmp(h_iter->blk->blks, blk->blks,
-				    _BLK_MSZE(blk)) == 0)) {
+				    _BLK_MSZE(blk)) == 0) &&
+			    _ACC_CMP_EQ(h_iter->blk->acc_start,
+					blk->acc_start) &&
+			    _ACC_CMP_EQ(h_iter->blk->acc_end,
+					blk->acc_end)) {
 				/* duplicate block */
 				free(h_new);
 
@@ -859,6 +861,13 @@ static struct bpf_blk *_gen_bpf_node(struct bpf_state *state,
 			goto node_failure;
 	}
 
+	/* set the accumulator state at the end of the block */
+	/* NOTE: the accumulator end state is very critical when we are
+	 *       assembling the final state; we assume that however we leave
+	 *       this instruction block the accumulator state is represented
+	 *       by blk->acc_end, it must be kept correct */
+	blk->acc_end = *a_state;
+
 	/* check the accumulator against the datum */
 	switch (node->op) {
 	case SCMP_CMP_MASKED_EQ:
@@ -903,7 +912,6 @@ static struct bpf_blk *_gen_bpf_node(struct bpf_state *state,
 		goto node_failure;
 
 	blk->node = node;
-	blk->acc_end = *a_state;
 	return blk;
 
 node_failure:
@@ -958,7 +966,7 @@ static struct bpf_blk *_gen_bpf_chain_lvl_res(struct bpf_state *state,
 		case TGT_PTR_DB:
 			node = (struct db_arg_chain_tree *)i_iter->jt.tgt.db;
 			b_new = _gen_bpf_chain(state, sys, node,
-					       nxt_jump, &blk->acc_start);
+					       nxt_jump, &blk->acc_end);
 			if (b_new == NULL)
 				return NULL;
 			i_iter->jt = _BPF_JMP_HSH(b_new->hash);
@@ -984,7 +992,7 @@ static struct bpf_blk *_gen_bpf_chain_lvl_res(struct bpf_state *state,
 		case TGT_PTR_DB:
 			node = (struct db_arg_chain_tree *)i_iter->jf.tgt.db;
 			b_new = _gen_bpf_chain(state, sys, node,
-					       nxt_jump, &blk->acc_start);
+					       nxt_jump, &blk->acc_end);
 			if (b_new == NULL)
 				return NULL;
 			i_iter->jf = _BPF_JMP_HSH(b_new->hash);
@@ -1353,13 +1361,32 @@ static struct bpf_blk *_gen_bpf_arch(struct bpf_state *state,
 			/* filter out x32 */
 			_BPF_INSTR(instr,
 				   _BPF_OP(state->arch, BPF_JMP + BPF_JGE),
-				   _BPF_JMP_HSH(state->bad_arch_hsh),
+				   _BPF_JMP_NO,
 				   _BPF_JMP_NO,
 				   _BPF_K(state->arch, X32_SYSCALL_BIT));
 			if (b_head != NULL)
 				instr.jf = _BPF_JMP_HSH(b_head->hash);
 			else
 				instr.jf = _BPF_JMP_HSH(state->def_hsh);
+			b_new = _blk_append(state, b_new, &instr);
+			if (b_new == NULL)
+				goto arch_failure;
+			/* NOTE: starting with Linux v4.8 the seccomp filters
+			 *	 are processed both when the syscall is
+			 *	 initially executed as well as after any
+			 *	 tracing processes finish so we need to make
+			 *	 sure we don't trap the -1 syscall which
+			 *	 tracers can use to skip the syscall, see
+			 *	 seccomp(2) for more information */
+			_BPF_INSTR(instr,
+				   _BPF_OP(state->arch, BPF_JMP + BPF_JEQ),
+				   _BPF_JMP_NO,
+				   _BPF_JMP_HSH(state->bad_arch_hsh),
+				   _BPF_K(state->arch, -1));
+			if (b_head != NULL)
+				instr.jt = _BPF_JMP_HSH(b_head->hash);
+			else
+				instr.jt = _BPF_JMP_HSH(state->def_hsh);
 			blk_cnt++;
 		} else if (state->arch->token == SCMP_ARCH_X32) {
 			/* filter out x86_64 */
@@ -1928,23 +1955,22 @@ struct bpf_program *gen_bpf_generate(const struct db_filter_col *col)
 {
 	int rc;
 	struct bpf_state state;
+	struct bpf_program *prgm;
 
 	memset(&state, 0, sizeof(state));
 	state.attr = &col->attr;
 
-	state.bpf = malloc(sizeof(*(state.bpf)));
-	if (state.bpf == NULL)
+	prgm = zmalloc(sizeof(*(prgm)));
+	if (prgm == NULL)
 		return NULL;
-	memset(state.bpf, 0, sizeof(*(state.bpf)));
+	state.bpf = prgm;
 
 	rc = _gen_bpf_build_bpf(&state, col);
-	if (rc < 0)
-		goto bpf_generate_end;
+	if (rc == 0)
+		state.bpf = NULL;
+	_state_release(&state);
 
-bpf_generate_end:
-	if (rc < 0)
-		_state_release(&state);
-	return state.bpf;
+	return prgm;
 }
 
 /**

@@ -53,27 +53,13 @@ struct arch_def {
 	int (*syscall_resolve_name)(const char *name);
 	const char *(*syscall_resolve_num)(int num);
 	int (*syscall_rewrite)(int *syscall);
-	int (*rule_add)(struct db_filter_col *col, struct db_filter *db,
-			bool strict, struct db_api_rule_list *rule);
+	int (*rule_add)(struct db_filter *db, struct db_api_rule_list *rule);
 };
 
 /* arch_def for the current architecture */
 extern const struct arch_def *arch_def_native;
 
-/* NOTE: Syscall mappings can be found by running the following commands
- *	 on the specific architecture's include file:
- *	   # gcc -E -dM <file> | grep '__NR_'
- *	 where <file> in many cases is /usr/include/asm/unistd.h, however,
- *	 depending on the architecture you may need to use a different header.
- *	 Further, you can automatically format this list for use as a struct
- *	 initializer with the following command:
- *	   # gcc -E -dM <file> | grep '__NR_' | \
- *	     sed -e 's/#define[ \t]\+__NR_//' | sort | \
- *	     sed -e 's/\([^ \t]\+\)\([ \t]\+\)\([0-9]\+\)/\t{ \"\1\", \3 },/'
- *	 Finally, when creating a table/array of this structure, the final
- *	 sentinel entry should be "{ NULL, __NR_SCMP_ERROR }"; see the existing
- *	 tables as an example.
- */
+/* syscall name/num mapping */
 struct arch_syscall_def {
 	const char *name;
 	unsigned int num;
@@ -90,8 +76,6 @@ int arch_valid(uint32_t arch);
 const struct arch_def *arch_def_lookup(uint32_t token);
 const struct arch_def *arch_def_lookup_name(const char *arch_name);
 
-int arch_arg_count_max(const struct arch_def *arch);
-
 int arch_arg_offset_lo(const struct arch_def *arch, unsigned int arg);
 int arch_arg_offset_hi(const struct arch_def *arch, unsigned int arg);
 int arch_arg_offset(const struct arch_def *arch, unsigned int arg);
@@ -102,8 +86,7 @@ const char *arch_syscall_resolve_num(const struct arch_def *arch, int num);
 int arch_syscall_translate(const struct arch_def *arch, int *syscall);
 int arch_syscall_rewrite(const struct arch_def *arch, int *syscall);
 
-int arch_filter_rule_add(struct db_filter_col *col, struct db_filter *db,
-			 bool strict, uint32_t action, int syscall,
-			 unsigned int chain_len, struct db_api_arg *chain);
+int arch_filter_rule_add(struct db_filter *db,
+			 const struct db_api_rule_list *rule);
 
 #endif

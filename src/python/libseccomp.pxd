@@ -43,6 +43,8 @@ cdef extern from "seccomp.h":
         SCMP_ARCH_MIPSEL
         SCMP_ARCH_MIPSEL64
         SCMP_ARCH_MIPSEL64N32
+        SCMP_ARCH_PARISC
+        SCMP_ARCH_PARISC64
         SCMP_ARCH_PPC
         SCMP_ARCH_PPC64
         SCMP_ARCH_PPC64LE
@@ -54,6 +56,8 @@ cdef extern from "seccomp.h":
         SCMP_FLTATR_ACT_BADARCH
         SCMP_FLTATR_CTL_NNP
         SCMP_FLTATR_CTL_TSYNC
+        SCMP_FLTATR_API_TSKIP
+        SCMP_FLTATR_CTL_LOG
 
     cdef enum scmp_compare:
         SCMP_CMP_NE
@@ -65,8 +69,10 @@ cdef extern from "seccomp.h":
         SCMP_CMP_MASKED_EQ
 
     cdef enum:
+        SCMP_ACT_KILL_PROCESS
         SCMP_ACT_KILL
         SCMP_ACT_TRAP
+        SCMP_ACT_LOG
         SCMP_ACT_ALLOW
     unsigned int SCMP_ACT_ERRNO(int errno)
     unsigned int SCMP_ACT_TRACE(int value)
@@ -80,6 +86,9 @@ cdef extern from "seccomp.h":
         scmp_datum_t datum_b
 
     scmp_version *seccomp_version()
+
+    unsigned int seccomp_api_get()
+    int seccomp_api_set(unsigned int level)
 
     scmp_filter_ctx seccomp_init(uint32_t def_action)
     int seccomp_reset(scmp_filter_ctx ctx, uint32_t def_action)

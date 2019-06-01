@@ -43,8 +43,8 @@ struct db_api_arg {
 struct db_api_rule_list {
 	uint32_t action;
 	int syscall;
-	struct db_api_arg *args;
-	unsigned int args_cnt;
+	bool strict;
+	struct db_api_arg args[ARG_COUNT_MAX];
 
 	struct db_api_rule_list *prev, *next;
 };
@@ -52,14 +52,18 @@ struct db_api_rule_list {
 struct db_arg_chain_tree {
 	/* argument number (a0 = 0, a1 = 1, etc.) */
 	unsigned int arg;
+	/* true to indicate this is the high 32-bit word of a 64-bit value */
+	bool arg_h_flg;
 	/* argument bpf offset */
 	unsigned int arg_offset;
 
 	/* comparison operator */
 	enum scmp_compare op;
+	enum scmp_compare op_orig;
 	/* syscall argument value */
 	uint32_t mask;
 	uint32_t datum;
+	scmp_datum_t datum_full;
 
 	/* actions */
 	bool act_t_flg;
@@ -77,36 +81,6 @@ struct db_arg_chain_tree {
 	unsigned int refcnt;
 };
 #define ARG_MASK_MAX		((uint32_t)-1)
-#define db_chain_lt(x,y) \
-	(((x)->arg < (y)->arg) || \
-	 (((x)->arg == (y)->arg) && \
-	  (((x)->op < (y)->op) || (((x)->mask & (y)->mask) == (y)->mask))))
-#define db_chain_eq(x,y) \
-	(((x)->arg == (y)->arg) && \
-	 ((x)->op == (y)->op) && ((x)->datum == (y)->datum) && \
-	 ((x)->mask == (y)->mask))
-#define db_chain_gt(x,y) \
-	(((x)->arg > (y)->arg) || \
-	 (((x)->arg == (y)->arg) && \
-	  (((x)->op > (y)->op) || (((x)->mask & (y)->mask) != (y)->mask))))
-#define db_chain_action(x) \
-	(((x)->act_t_flg) || ((x)->act_f_flg))
-#define db_chain_zombie(x) \
-	((x)->nxt_t == NULL && !((x)->act_t_flg) && \
-	 (x)->nxt_f == NULL && !((x)->act_f_flg))
-#define db_chain_leaf(x) \
-	((x)->nxt_t == NULL && (x)->nxt_f == NULL)
-#define db_chain_eq_result(x,y) \
-	((((x)->nxt_t != NULL && (y)->nxt_t != NULL) || \
-	  ((x)->nxt_t == NULL && (y)->nxt_t == NULL)) && \
-	 (((x)->nxt_f != NULL && (y)->nxt_f != NULL) || \
-	  ((x)->nxt_f == NULL && (y)->nxt_f == NULL)) && \
-	 ((x)->act_t_flg == (y)->act_t_flg) && \
-	 ((x)->act_f_flg == (y)->act_f_flg) && \
-	 (((x)->act_t_flg && (x)->act_t == (y)->act_t) || \
-	  (!((x)->act_t_flg))) && \
-	 (((x)->act_f_flg && (x)->act_f == (y)->act_f) || \
-	  (!((x)->act_f_flg))))
 
 struct db_sys_list {
 	/* native syscall number */
@@ -138,6 +112,10 @@ struct db_filter_attr {
 	uint32_t nnp_enable;
 	/* SECCOMP_FILTER_FLAG_TSYNC related attributes */
 	uint32_t tsync_enable;
+	/* allow rules with a -1 syscall value */
+	uint32_t api_tskip;
+	/* SECCOMP_FILTER_FLAG_LOG related attributes */
+	uint32_t log_enable;
 };
 
 struct db_filter {
@@ -188,6 +166,8 @@ struct db_filter_col {
 	for (iter = (list); iter != NULL; iter = iter->next)
 
 int db_action_valid(uint32_t action);
+
+struct db_api_rule_list *db_rule_dup(const struct db_api_rule_list *src);
 
 struct db_filter_col *db_col_init(uint32_t def_action);
 int db_col_reset(struct db_filter_col *col, uint32_t def_action);

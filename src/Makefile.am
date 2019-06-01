@@ -16,13 +16,17 @@
 # along with this library; if not, see <http://www.gnu.org/licenses>.
 #
 
+@CODE_COVERAGE_RULES@
+
+CODE_COVERAGE_IGNORE_PATTERN = /usr/include/bits/* */arch-syscall-check.c
+
 SUBDIRS = .
 if ENABLE_PYTHON
 SUBDIRS += python
 endif
 
 SOURCES_ALL = \
-	api.c system.h system.c \
+	api.c system.h system.c helper.h helper.c \
 	gen_pfc.h gen_pfc.c gen_bpf.h gen_bpf.c \
 	hash.h hash.c \
 	db.h db.c \
@@ -35,6 +39,7 @@ SOURCES_ALL = \
 	arch-mips.h arch-mips.c arch-mips-syscalls.c \
 	arch-mips64.h arch-mips64.c arch-mips64-syscalls.c \
 	arch-mips64n32.h arch-mips64n32.c arch-mips64n32-syscalls.c \
+	arch-parisc.h arch-parisc.c arch-parisc64.c arch-parisc-syscalls.c \
 	arch-ppc.h arch-ppc.c arch-ppc-syscalls.c \
 	arch-ppc64.h arch-ppc64.c arch-ppc64-syscalls.c \
 	arch-s390.h arch-s390.c arch-s390-syscalls.c \
@@ -51,11 +56,15 @@ lib_LTLIBRARIES = libseccomp.la
 arch_syscall_dump_SOURCES = arch-syscall-dump.c ${SOURCES_ALL}
 
 arch_syscall_check_SOURCES = arch-syscall-check.c ${SOURCES_ALL}
+arch_syscall_check_CFLAGS = ${CODE_COVERAGE_CFLAGS}
+arch_syscall_check_LDFLAGS = ${CODE_COVERAGE_LDFLAGS}
 
 libseccomp_la_SOURCES = ${SOURCES_ALL}
-libseccomp_la_CPPFLAGS = ${AM_CPPFLAGS} -I${top_builddir}/include
-libseccomp_la_CFLAGS = ${AM_CFLAGS} ${CFLAGS} -fPIC -DPIC -fvisibility=hidden
-libseccomp_la_LDFLAGS = ${AM_LDFLAGS} ${LDFLAGS} \
+libseccomp_la_CPPFLAGS = ${AM_CPPFLAGS} ${CODE_COVERAGE_CPPFLAGS} \
+	-I${top_builddir}/include
+libseccomp_la_CFLAGS = ${AM_CFLAGS} ${CODE_COVERAGE_CFLAGS} ${CFLAGS} \
+	-fPIC -DPIC -fvisibility=hidden
+libseccomp_la_LDFLAGS = ${AM_LDFLAGS} ${CODE_COVERAGE_LDFLAGS} ${LDFLAGS} \
 	-version-number ${VERSION_MAJOR}:${VERSION_MINOR}:${VERSION_MICRO}
 
 check-build:

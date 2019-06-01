@@ -27,7 +27,7 @@
 #include "arch.h"
 #include "arch-ppc.h"
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "_llseek", 140 },
 	{ "_newselect", 142 },
@@ -123,6 +123,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "get_mempolicy", 260 },
 	{ "get_robust_list", 299 },
 	{ "get_thread_area", __PNR_get_thread_area },
+	{ "get_tls", __PNR_get_tls },
 	{ "getcpu", 302 },
 	{ "getcwd", 182 },
 	{ "getdents", 141 },
@@ -168,6 +169,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "io_cancel", 231 },
 	{ "io_destroy", 228 },
 	{ "io_getevents", 229 },
+	{ "io_pgetevents", 388 },
 	{ "io_setup", 227 },
 	{ "io_submit", 230 },
 	{ "ioctl", 54 },
@@ -177,7 +179,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "ioprio_set", 273 },
 	{ "ipc", 117 },
 	{ "kcmp", 354 },
-	{ "kexec_file_load", __PNR_kexec_file_load },
+	{ "kexec_file_load", 382 },
 	{ "kexec_load", 268 },
 	{ "keyctl", 271 },
 	{ "kill", 37 },
@@ -255,11 +257,15 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "pipe", 42 },
 	{ "pipe2", 317 },
 	{ "pivot_root", 203 },
+	{ "pkey_alloc", 384 },
+	{ "pkey_free", 385 },
+	{ "pkey_mprotect", 386 },
 	{ "poll", 167 },
 	{ "ppoll", 281 },
 	{ "prctl", 171 },
 	{ "pread64", 179 },
 	{ "preadv", 320 },
+	{ "preadv2", 380 },
 	{ "prlimit64", 325 },
 	{ "process_vm_readv", 351 },
 	{ "process_vm_writev", 352 },
@@ -270,6 +276,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "putpmsg", 188 },
 	{ "pwrite64", 180 },
 	{ "pwritev", 321 },
+	{ "pwritev2", 381 },
 	{ "query_module", 166 },
 	{ "quotactl", 131 },
 	{ "read", 3 },
@@ -291,6 +298,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "request_key", 270 },
 	{ "restart_syscall", 0 },
 	{ "rmdir", 40 },
+	{ "rseq", 387 },
 	{ "rt_sigaction", 173 },
 	{ "rt_sigpending", 175 },
 	{ "rt_sigprocmask", 174 },
@@ -300,9 +308,11 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "rt_sigtimedwait", 176 },
 	{ "rt_tgsigqueueinfo", 322 },
 	{ "rtas", 255 },
+	{ "s390_guarded_storage", __PNR_s390_guarded_storage },
 	{ "s390_pci_mmio_read", __PNR_s390_pci_mmio_read },
 	{ "s390_pci_mmio_write", __PNR_s390_pci_mmio_write },
 	{ "s390_runtime_instr", __PNR_s390_runtime_instr },
+	{ "s390_sthyi", __PNR_s390_sthyi },
 	{ "sched_get_priority_max", 159 },
 	{ "sched_get_priority_min", 160 },
 	{ "sched_getaffinity", 223 },
@@ -388,6 +398,7 @@ const struct arch_syscall_def ppc_syscall_table[] = { \
 	{ "stat64", 195 },
 	{ "statfs", 99 },
 	{ "statfs64", 252 },
+	{ "statx", 383},
 	{ "stime", 25 },
 	{ "stty", 31 },
 	{ "subpage_prot", 310 },
@@ -502,15 +513,15 @@ const char *ppc_syscall_resolve_num(int num)
 }
 
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *ppc_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *ppc_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return ppc_syscall_table[spot].name;
+	return &ppc_syscall_table[spot];
 }

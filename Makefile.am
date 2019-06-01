@@ -22,7 +22,9 @@ SUBDIRS = include src tools tests doc
 pkgconfdir = ${libdir}/pkgconfig
 pkgconf_DATA = libseccomp.pc
 
-EXTRA_DIST = CHANGELOG CREDITS LICENSE README SUBMITTING_PATCHES
+EXTRA_DIST = \
+	CHANGELOG CREDITS LICENSE \
+	README.md CONTRIBUTING.md RELEASE_PROCESS.md
 
 # support silent builds
 AM_MAKEFLAGS_0 = --quiet --no-print-directory
@@ -30,12 +32,29 @@ AM_MAKEFLAGS_1 =
 AM_MAKEFLAGS_ = ${AM_MAKEFLAGS_0}
 AM_MAKEFLAGS = ${AM_MAKEFLAGS_@AM_V@}
 
+# enable python during distcheck
+AM_DISTCHECK_CONFIGURE_FLAGS = --enable-python
+
 check-build: all
 	${MAKE} ${AM_MAKEFLAGS} -C src check-build
 	${MAKE} ${AM_MAKEFLAGS} -C tests check-build
 
 check-syntax:
 	@./tools/check-syntax
+
+if CODE_COVERAGE_ENABLED
+check-code-coverage: check-build
+	${MAKE} ${AM_MAKEFLAGS} -C tests check-code-coverage
+endif
+
+if CODE_COVERAGE_ENABLED
+test-code-coverage: check-build
+	${MAKE} ${AM_MAKEFLAGS} -C src check-code-coverage
+	LIBSECCOMP_TSTCFG_TYPE=basic \
+		${MAKE} ${AM_MAKEFLAGS} check-code-coverage
+	LIBSECCOMP_TSTCFG_TYPE=bpf-sim \
+		${MAKE} ${AM_MAKEFLAGS} check-code-coverage
+endif
 
 if COVERITY
 coverity-build: clean
@@ -55,6 +74,18 @@ coverity-tarball: coverity-build
 	echo " HEAD revision: $$rev_full"; \
 	ls -l libseccomp-coverity_$$rev.tar.gz
 endif
+
+help:
+	@echo "libseccomp build system"
+	@echo " make targets:"
+	@echo "  (none):           build the library"
+	@echo "  clean:            remove all build artifacts"
+	@echo "  check:            run the automated regression tests"
+	@echo "  check-build:      build the library and all tests"
+	@echo "  check-syntax:     verify the code style"
+	@echo "  distcheck:        verify the build for distribution"
+	@echo "  dist-gzip:        build a release tarball"
+	@echo "  coverity-tarball: build a tarball for use with Coverity (opt)"
 
 clean-local:
 	${RM} -rf cov-int libseccomp-coverity_*.tar.gz

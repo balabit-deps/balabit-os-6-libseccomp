@@ -10,7 +10,7 @@
 #include "arch.h"
 #include "arch-s390.h"
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "_llseek", 140 },
 	{ "_newselect", 142 },
@@ -106,6 +106,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "get_mempolicy", 269 },
 	{ "get_robust_list", 305 },
 	{ "get_thread_area", __PNR_get_thread_area },
+	{ "get_tls", __PNR_get_tls },
 	{ "getcpu", 311 },
 	{ "getcwd", 183 },
 	{ "getdents", 141 },
@@ -151,6 +152,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "io_cancel", 247 },
 	{ "io_destroy", 244 },
 	{ "io_getevents", 245 },
+	{ "io_pgetevents", 382 },
 	{ "io_setup", 243 },
 	{ "io_submit", 246 },
 	{ "ioctl", 54 },
@@ -160,7 +162,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "ioprio_set", 282 },
 	{ "ipc", 117 },
 	{ "kcmp", 343 },
-	{ "kexec_file_load", __PNR_kexec_file_load },
+	{ "kexec_file_load", 381 },
 	{ "kexec_load", 277 },
 	{ "keyctl", 280 },
 	{ "kill", 37 },
@@ -238,11 +240,15 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "pipe", 42 },
 	{ "pipe2", 325 },
 	{ "pivot_root", 217 },
+	{ "pkey_alloc", __PNR_pkey_alloc },
+	{ "pkey_free", __PNR_pkey_free },
+	{ "pkey_mprotect", __PNR_pkey_mprotect },
 	{ "poll", 168 },
 	{ "ppoll", 302 },
 	{ "prctl", 172 },
 	{ "pread64", 180 },
 	{ "preadv", 328 },
+	{ "preadv2", 376 },
 	{ "prlimit64", 334 },
 	{ "process_vm_readv", 340 },
 	{ "process_vm_writev", 341 },
@@ -253,6 +259,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "putpmsg", 189 },
 	{ "pwrite64", 181 },
 	{ "pwritev", 329 },
+	{ "pwritev2", 377 },
 	{ "query_module", 167 },
 	{ "quotactl", 131 },
 	{ "read", 3 },
@@ -274,6 +281,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "request_key", 279 },
 	{ "restart_syscall", 7 },
 	{ "rmdir", 40 },
+	{ "rseq", 383 },
 	{ "rt_sigaction", 174 },
 	{ "rt_sigpending", 176 },
 	{ "rt_sigprocmask", 175 },
@@ -283,9 +291,11 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "rt_sigtimedwait", 177 },
 	{ "rt_tgsigqueueinfo", 330 },
 	{ "rtas", __PNR_rtas },
+	{ "s390_guarded_storage", 378 },
 	{ "s390_pci_mmio_read", 353 },
 	{ "s390_pci_mmio_write", 352 },
 	{ "s390_runtime_instr", 342 },
+	{ "s390_sthyi", 380 },
 	{ "sched_get_priority_max", 159 },
 	{ "sched_get_priority_min", 160 },
 	{ "sched_getaffinity", 240 },
@@ -371,6 +381,7 @@ const struct arch_syscall_def s390_syscall_table[] = { \
 	{ "stat64", 195 },
 	{ "statfs", 99 },
 	{ "statfs64", 265 },
+	{ "statx", 379 },
 	{ "stime", 25 },
 	{ "stty", __PNR_stty },
 	{ "subpage_prot", __PNR_subpage_prot },
@@ -567,16 +578,17 @@ const char *s390_syscall_resolve_num(int num)
 
 	return NULL;
 }
+
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *s390_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *s390_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return s390_syscall_table[spot].name;
+	return &s390_syscall_table[spot];
 }

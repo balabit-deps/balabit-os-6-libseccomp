@@ -34,6 +34,8 @@
 #include "arch.h"
 #include "db.h"
 #include "gen_pfc.h"
+#include "helper.h"
+#include "system.h"
 
 struct pfc_sys_list {
 	struct db_sys_list *sys;
@@ -71,6 +73,10 @@ static const char *_pfc_arch(const struct arch_def *arch)
 		return "mips64n32";
 	case SCMP_ARCH_MIPSEL64N32:
 		return "mipsel64n32";
+	case SCMP_ARCH_PARISC:
+		return "parisc";
+	case SCMP_ARCH_PARISC64:
+		return "parisc64";
 	case SCMP_ARCH_PPC64:
 		return "ppc64";
 	case SCMP_ARCH_PPC64LE:
@@ -112,8 +118,11 @@ static void _pfc_arg(FILE *fds,
  */
 static void _pfc_action(FILE *fds, uint32_t action)
 {
-	switch (action & 0xffff0000) {
-	case SCMP_ACT_KILL:
+	switch (action & SECCOMP_RET_ACTION_FULL) {
+	case SCMP_ACT_KILL_PROCESS:
+		fprintf(fds, "action KILL_PROCESS;\n");
+		break;
+	case SCMP_ACT_KILL_THREAD:
 		fprintf(fds, "action KILL;\n");
 		break;
 	case SCMP_ACT_TRAP:
@@ -124,6 +133,9 @@ static void _pfc_action(FILE *fds, uint32_t action)
 		break;
 	case SCMP_ACT_TRACE(0):
 		fprintf(fds, "action TRACE(%u);\n", (action & 0x0000ffff));
+		break;
+	case SCMP_ACT_LOG:
+		fprintf(fds, "action LOG;\n");
 		break;
 	case SCMP_ACT_ALLOW:
 		fprintf(fds, "action ALLOW;\n");
@@ -235,10 +247,10 @@ static void _gen_pfc_syscall(const struct arch_def *arch,
 	const char *sys_name = arch_syscall_resolve_num(arch, sys_num);
 
 	_indent(fds, 1);
-	fprintf(fds, "# filter for syscall \"%s\" (%d) [priority: %d]\n",
+	fprintf(fds, "# filter for syscall \"%s\" (%u) [priority: %d]\n",
 		(sys_name ? sys_name : "UNKNOWN"), sys_num, sys->priority);
 	_indent(fds, 1);
-	fprintf(fds, "if ($syscall == %d)\n", sys_num);
+	fprintf(fds, "if ($syscall == %u)\n", sys_num);
 	if (sys->chains == NULL) {
 		_indent(fds, 2);
 		_pfc_action(fds, sys->action);
@@ -266,12 +278,11 @@ static int _gen_pfc_arch(const struct db_filter_col *col,
 
 	/* sort the syscall list */
 	db_list_foreach(s_iter, db->syscalls) {
-		p_new = malloc(sizeof(*p_new));
+		p_new = zmalloc(sizeof(*p_new));
 		if (p_new == NULL) {
 			rc = -ENOMEM;
 			goto arch_return;
 		}
-		memset(p_new, 0, sizeof(*p_new));
 		p_new->sys = s_iter;
 
 		p_prev = NULL;
@@ -297,8 +308,10 @@ static int _gen_pfc_arch(const struct db_filter_col *col,
 	fprintf(fds, "if ($arch == %u)\n", db->arch->token_bpf);
 	p_iter = p_head;
 	while (p_iter != NULL) {
-		if (!p_iter->sys->valid)
+		if (!p_iter->sys->valid) {
+			p_iter = p_iter->next;
 			continue;
+		}
 		_gen_pfc_syscall(db->arch, p_iter->sys, fds);
 		p_iter = p_iter->next;
 	}

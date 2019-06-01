@@ -1,7 +1,8 @@
 /**
  * Enhanced Seccomp Filter DB
  *
- * Copyright (c) 2012,2016 Red Hat <pmoore@redhat.com>
+ * Copyright (c) 2012,2016,2018 Red Hat <pmoore@redhat.com>
+ * Copyright (c) 2019 Cisco Systems, Inc. <pmoore2@cisco.com>
  * Author: Paul Moore <paul@paul-moore.com>
  */
 
@@ -31,6 +32,7 @@
 #include "arch.h"
 #include "db.h"
 #include "system.h"
+#include "helper.h"
 
 /* state values */
 #define _DB_STA_VALID			0xA1B2C3D4
@@ -43,53 +45,300 @@
 #define _DB_PRI_MASK_USER		0x00FF0000
 #define _DB_PRI_USER(x)			(((x) << 16) & _DB_PRI_MASK_USER)
 
-/* private structure for tracking the state of the sub-tree "pruning" */
-struct db_prune_state {
-	bool prefix_exist;
-	bool prefix_new;
-	bool matched;
+/* prove information about the sub-tree check results */
+struct db_iter_state {
+#define _DB_IST_NONE			0x00000000
+#define _DB_IST_MATCH			0x00000001
+#define _DB_IST_MATCH_ONCE		0x00000002
+#define _DB_IST_X_FINISHED		0x00000010
+#define _DB_IST_N_FINISHED		0x00000020
+#define _DB_IST_X_PREFIX		0x00000100
+#define _DB_IST_N_PREFIX		0x00000200
+#define _DB_IST_M_MATCHSET		(_DB_IST_MATCH|_DB_IST_MATCH_ONCE)
+#define _DB_IST_M_REDUNDANT		(_DB_IST_MATCH| \
+					 _DB_IST_X_FINISHED| \
+					 _DB_IST_N_PREFIX)
+	unsigned int flags;
+	uint32_t action;
+	struct db_sys_list *sx;
 };
 
-static unsigned int _db_tree_free(struct db_arg_chain_tree *tree);
+static unsigned int _db_node_put(struct db_arg_chain_tree **node);
 
 /**
- * Do not call this function directly, use _db_tree_free() instead
+ * Define the syscall argument priority for nodes on the same level of the tree
+ * @param a tree node
+ *
+ * Prioritize the syscall argument value, taking into account hi/lo words.
+ * Should only ever really be called by _db_chain_{lt,eq}().  Returns an
+ * arbitrary value indicating priority.
+ *
  */
-static unsigned int __db_tree_free(struct db_arg_chain_tree *tree)
+static unsigned int __db_chain_arg_priority(const struct db_arg_chain_tree *a)
 {
-	int cnt;
+	return (a->arg << 1) + (a->arg_h_flg ? 1 : 0);
+}
 
-	if (tree == NULL || --(tree->refcnt) > 0)
+/**
+ * Define the "op" priority for nodes on the same level of the tree
+ * @param op the argument operator
+ *
+ * Prioritize the syscall argument comparison operator.  Should only ever
+ * really be called by _db_chain_{lt,eq}().  Returns an arbitrary value
+ * indicating priority.
+ *
+ */
+static unsigned int __db_chain_op_priority(enum scmp_compare op)
+{
+	/* the distinction between LT/LT and GT/GE is mostly to make the
+	 * ordering as repeatable as possible regardless of the order in which
+	 * the rules are added */
+	switch (op) {
+	case SCMP_CMP_MASKED_EQ:
+	case SCMP_CMP_EQ:
+	case SCMP_CMP_NE:
+		return 3;
+	case SCMP_CMP_LE:
+	case SCMP_CMP_LT:
+		return 2;
+	case SCMP_CMP_GE:
+	case SCMP_CMP_GT:
+		return 1;
+	default:
 		return 0;
+	}
+}
 
-	/* we assume the caller has ensured that 'tree->lvl_prv == NULL' */
-	cnt = __db_tree_free(tree->lvl_nxt);
-	cnt += _db_tree_free(tree->nxt_t);
-	cnt += _db_tree_free(tree->nxt_f);
+/**
+ * Determine if node "a" is less than node "b"
+ * @param a tree node
+ * @param b tree node
+ *
+ * The logic is best explained by looking at the comparison code in the
+ * function.
+ *
+ */
+static bool _db_chain_lt(const struct db_arg_chain_tree *a,
+			 const struct db_arg_chain_tree *b)
+{
+	unsigned int a_arg, b_arg;
+	unsigned int a_op, b_op;
 
-	free(tree);
-	return cnt + 1;
+	a_arg = __db_chain_arg_priority(a);
+	b_arg = __db_chain_arg_priority(b);
+	if (a_arg < b_arg)
+		return true;
+	else if (a_arg > b_arg)
+		return false;
+
+	a_op = __db_chain_op_priority(a->op_orig);
+	b_op = __db_chain_op_priority(b->op_orig);
+	if (a_op < b_op)
+		return true;
+	else if (a_op > b_op)
+		return false;
+
+	/* NOTE: at this point the arg and op priorities are equal */
+
+	switch (a->op_orig) {
+	case SCMP_CMP_LE:
+	case SCMP_CMP_LT:
+		/* in order to ensure proper ordering for LT/LE comparisons we
+		 * need to invert the argument value so smaller values come
+		 * first */
+		if (a->datum > b->datum)
+			return true;
+		break;
+	default:
+		if (a->datum < b->datum)
+			return true;
+		break;
+	}
+
+	return false;
+}
+
+/**
+ * Determine if two nodes have equal argument datum values
+ * @param a tree node
+ * @param b tree node
+ *
+ * In order to return true the nodes must have the same datum and mask for the
+ * same argument.
+ *
+ */
+static bool _db_chain_eq(const struct db_arg_chain_tree *a,
+			 const struct db_arg_chain_tree *b)
+{
+	unsigned int a_arg, b_arg;
+
+	a_arg = __db_chain_arg_priority(a);
+	b_arg = __db_chain_arg_priority(b);
+
+	return ((a_arg == b_arg) && (a->op == b->op) &&
+		(a->datum == b->datum) && (a->mask == b->mask));
+}
+
+/**
+ * Determine if a given tree node is a leaf node
+ * @param iter the node to test
+ *
+ * A leaf node is a node with no other nodes beneath it.
+ *
+ */
+static bool _db_chain_leaf(const struct db_arg_chain_tree *iter)
+{
+	return (iter->nxt_t == NULL && iter->nxt_f == NULL);
+}
+
+/**
+ * Determine if a given tree node is a zombie node
+ * @param iter the node to test
+ *
+ * A zombie node is a leaf node that also has no true or false actions.
+ *
+ */
+static bool _db_chain_zombie(const struct db_arg_chain_tree *iter)
+{
+	return (_db_chain_leaf(iter) &&
+		!(iter->act_t_flg) && !(iter->act_f_flg));
+}
+
+/**
+ * Get a node reference
+ * @param node pointer to a node
+ *
+ * This function gets a reference to an individual node.  Returns a pointer
+ * to the node.
+ *
+ */
+static struct db_arg_chain_tree *_db_node_get(struct db_arg_chain_tree *node)
+{
+	if (node != NULL)
+		node->refcnt++;
+	return node;
+}
+
+/**
+ * Garbage collect a level of the tree
+ * @param node tree node
+ *
+ * Check the entire level on which @node resides, if there is no other part of
+ * the tree which points to a node on this level, remove the entire level.
+ * Returns the number of nodes removed.
+ *
+ */
+static unsigned int _db_level_clean(struct db_arg_chain_tree *node)
+{
+	int cnt = 0;
+	unsigned int links;
+	struct db_arg_chain_tree *n = node;
+	struct db_arg_chain_tree *start;
+
+	while (n->lvl_prv)
+		n = n->lvl_prv;
+	start = n;
+
+	while (n != NULL) {
+		links = 0;
+		if (n->lvl_prv)
+			links++;
+		if (n->lvl_nxt)
+			links++;
+
+		if (n->refcnt > links)
+			return cnt;
+
+		n = n->lvl_nxt;
+	}
+
+	n = start;
+	while (n != NULL)
+		cnt += _db_node_put(&n);
+
+	return cnt;
 }
 
 /**
  * Free a syscall filter argument chain tree
  * @param tree the argument chain list
  *
- * This function frees a tree and returns the number of nodes freed.
+ * This function drops a reference to the tree pointed to by @tree and garbage
+ * collects the top level.  Returns the number of nodes removed.
  *
  */
-static unsigned int _db_tree_free(struct db_arg_chain_tree *tree)
+static unsigned int _db_tree_put(struct db_arg_chain_tree **tree)
 {
-	struct db_arg_chain_tree *iter;
+	unsigned int cnt;
 
-	if (tree == NULL)
+	cnt = _db_node_put(tree);
+	if (*tree)
+		cnt += _db_level_clean(*tree);
+
+	return cnt;
+}
+
+/**
+ * Release a node reference
+ * @param node pointer to a node
+ *
+ * This function drops a reference to an individual node, unless this is the
+ * last reference in which the entire sub-tree is affected.  Returns the number
+ * of nodes freed.
+ *
+ */
+static unsigned int _db_node_put(struct db_arg_chain_tree **node)
+{
+	unsigned int cnt = 0;
+	struct db_arg_chain_tree *n = *node;
+	struct db_arg_chain_tree *lvl_p, *lvl_n, *nxt_t, *nxt_f;
+
+	if (n == NULL)
 		return 0;
 
-	iter = tree;
-	while (iter->lvl_prv != NULL)
-		iter = iter->lvl_prv;
+	if (--(n->refcnt) == 0) {
+		lvl_p = n->lvl_prv;
+		lvl_n = n->lvl_nxt;
+		nxt_t = n->nxt_t;
+		nxt_f = n->nxt_f;
 
-	return __db_tree_free(iter);
+		/* split the current level */
+		/* NOTE: we still hold a ref for both lvl_p and lvl_n */
+		if (lvl_p)
+			lvl_p->lvl_nxt = NULL;
+		if (lvl_n)
+			lvl_n->lvl_prv = NULL;
+
+		/* drop refcnts on the current level */
+		if (lvl_p)
+			cnt += _db_node_put(&lvl_p);
+		if (lvl_n)
+			cnt += _db_node_put(&lvl_n);
+
+		/* re-link current level if it still exists */
+		if (lvl_p)
+			lvl_p->lvl_nxt = _db_node_get(lvl_n);
+		if (lvl_n)
+			lvl_n->lvl_prv = _db_node_get(lvl_p);
+
+		/* update caller's pointer */
+		if (lvl_p)
+			*node = lvl_p;
+		else if (lvl_n)
+			*node = lvl_n;
+		else
+			*node = NULL;
+
+		/* drop the next level(s) */
+		cnt += _db_tree_put(&nxt_t);
+		cnt += _db_tree_put(&nxt_f);
+
+		/* cleanup and accounting */
+		free(n);
+		cnt++;
+	}
+
+	return cnt;
 }
 
 /**
@@ -97,8 +346,8 @@ static unsigned int _db_tree_free(struct db_arg_chain_tree *tree)
  * @param tree the pointer to the tree
  * @param node the node to remove
  *
- * This function searches the tree looking for the node and removes it once
- * found.  Returns the number of nodes freed.
+ * This function searches the tree looking for the node and removes it as well
+ * as any sub-trees beneath it.  Returns the number of nodes freed.
  *
  */
 static unsigned int _db_tree_remove(struct db_arg_chain_tree **tree,
@@ -115,32 +364,43 @@ static unsigned int _db_tree_remove(struct db_arg_chain_tree **tree,
 		c_iter = c_iter->lvl_prv;
 
 	do {
-		if (c_iter == node || db_chain_zombie(c_iter)) {
-			/* remove from the tree */
-			if (c_iter == *tree) {
-				if (c_iter->lvl_prv != NULL)
-					*tree = c_iter->lvl_prv;
-				else
-					*tree = c_iter->lvl_nxt;
-			}
-			if (c_iter->lvl_prv != NULL)
-				c_iter->lvl_prv->lvl_nxt = c_iter->lvl_nxt;
-			if (c_iter->lvl_nxt != NULL)
-				c_iter->lvl_nxt->lvl_prv = c_iter->lvl_prv;
+		/* current node? */
+		if (c_iter == node)
+			goto remove;
 
-			/* free and return */
-			c_iter->lvl_prv = NULL;
-			c_iter->lvl_nxt = NULL;
-			cnt += _db_tree_free(c_iter);
-			return cnt;
-		}
-
-		/* check the true/false sub-trees */
+		/* check the sub-trees */
 		cnt += _db_tree_remove(&(c_iter->nxt_t), node);
 		cnt += _db_tree_remove(&(c_iter->nxt_f), node);
 
+		/* check for empty/zombie nodes */
+		if (_db_chain_zombie(c_iter))
+			goto remove;
+
+		/* next node on this level */
 		c_iter = c_iter->lvl_nxt;
-	} while (c_iter != NULL);
+	} while (c_iter != NULL && cnt == 0);
+
+	return cnt;
+
+remove:
+	/* reset the tree pointer if needed */
+	if (c_iter == *tree) {
+		if (c_iter->lvl_prv != NULL)
+			*tree = c_iter->lvl_prv;
+		else
+			*tree = c_iter->lvl_nxt;
+	}
+
+	/* remove the node from the current level */
+	if (c_iter->lvl_prv)
+		c_iter->lvl_prv->lvl_nxt = c_iter->lvl_nxt;
+	if (c_iter->lvl_nxt)
+		c_iter->lvl_nxt->lvl_prv = c_iter->lvl_prv;
+	c_iter->lvl_prv = NULL;
+	c_iter->lvl_nxt = NULL;
+
+	/* free the node and any sub-trees */
+	cnt += _db_node_put(&c_iter);
 
 	return cnt;
 }
@@ -188,162 +448,370 @@ static int _db_tree_act_check(struct db_arg_chain_tree *tree, uint32_t action)
 
 /**
  * Checks for a sub-tree match in an existing tree and prunes the tree
- * @param prev the head of the existing tree or sub-tree
- * @param existing the starting point into the existing tree
+ * @param existing pointer to the existing tree
  * @param new pointer to the new tree
- * @param state pointer to the pruning state
+ * @param state pointer to a state structure
  *
- * This function searches the existing and new trees trying to prune each to
- * eliminate redundancy.  Returns the number of nodes removed from the tree on
- * success, zero if no changes were made, and negative values if the new tree
- * should be discarded.
+ * This function searches the existing tree trying to prune it based on the
+ * new tree.  Returns the number of nodes removed from the tree on success,
+ * zero if no changes were made.
  *
  */
-static int _db_tree_sub_prune(struct db_arg_chain_tree **prev,
-			      struct db_arg_chain_tree *existing,
-			      struct db_arg_chain_tree *new,
-			      struct db_prune_state *state)
+static int _db_tree_prune(struct db_arg_chain_tree **existing,
+			  struct db_arg_chain_tree *new,
+			  struct db_iter_state *state)
 {
-	int rc = 0;
-	int rc_tmp;
-	struct db_arg_chain_tree *ec_iter;
-	struct db_arg_chain_tree *ec_iter_tmp;
-	struct db_arg_chain_tree *c_iter;
-	struct db_prune_state state_new;
+	int cnt = 0;
+	struct db_iter_state state_nxt;
+	struct db_iter_state state_new = *state;
+	struct db_arg_chain_tree *x_iter_next;
+	struct db_arg_chain_tree *x_iter = *existing;
+	struct db_arg_chain_tree *n_iter = new;
 
-	if (!state || !existing || !new)
-		return 0;
+	/* check if either tree is finished */
+	if (n_iter == NULL || x_iter == NULL)
+		goto prune_return;
 
-	ec_iter = existing;
-	c_iter = new;
+	/* bail out if we have a broken match */
+	if ((state->flags & _DB_IST_M_MATCHSET) == _DB_IST_MATCH_ONCE)
+		goto prune_return;
+
+	/* get to the start of the existing level */
+	while (x_iter->lvl_prv)
+		x_iter = x_iter->lvl_prv;
+
+	/* NOTE: a few comments on the code below ...
+	 * 1) we need to take a reference before we go down a level in case
+	 *    we end up dropping the sub-tree (see the _db_node_get() calls)
+	 * 2) since the new tree really only has one branch, we can only ever
+	 *    match on one branch in the existing tree, if we "hit" then we
+	 *    can bail on the other branches */
+
 	do {
-		if (db_chain_eq(ec_iter, c_iter)) {
-			/* equal */
+		/* store this now in case we remove x_iter */
+		x_iter_next = x_iter->lvl_nxt;
 
-			if (db_chain_leaf(c_iter)) {
-				/* leaf */
-				if (db_chain_eq_result(ec_iter, c_iter)) {
-					/* identical results */
-					if (prev != NULL)
-						return _db_tree_remove(prev,
-								       ec_iter);
-					else
-						return -1;
+		/* compare the two nodes */
+		if (_db_chain_eq(x_iter, n_iter)) {
+			/* we have a match */
+			state_new.flags |= _DB_IST_M_MATCHSET;
+
+			/* check if either tree is finished */
+			if (_db_chain_leaf(n_iter))
+				state_new.flags |= _DB_IST_N_FINISHED;
+			if (_db_chain_leaf(x_iter))
+				state_new.flags |= _DB_IST_X_FINISHED;
+
+			/* don't remove nodes if we have more actions/levels */
+			if ((x_iter->act_t_flg || x_iter->nxt_t) &&
+			    !(n_iter->act_t_flg || n_iter->nxt_t))
+				goto prune_return;
+			if ((x_iter->act_f_flg || x_iter->nxt_f) &&
+			    !(n_iter->act_f_flg || n_iter->nxt_f))
+				goto prune_return;
+
+			/* if finished, compare actions */
+			if ((state_new.flags & _DB_IST_N_FINISHED) &&
+			    (state_new.flags & _DB_IST_X_FINISHED)) {
+				if (n_iter->act_t_flg != x_iter->act_t_flg)
+					goto prune_return;
+				if (n_iter->act_t != x_iter->act_t)
+					goto prune_return;
+
+				if (n_iter->act_f_flg != x_iter->act_f_flg)
+					goto prune_return;
+				if (n_iter->act_f != x_iter->act_f)
+					goto prune_return;
+			}
+
+			/* check next level */
+			if (n_iter->nxt_t) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags |= _DB_IST_M_MATCHSET;
+				cnt += _db_tree_prune(&x_iter->nxt_t,
+						      n_iter->nxt_t,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					/* don't return yet, we need to check
+					 * the current node */
 				}
-				if (c_iter->act_t_flg && ec_iter->nxt_t) {
-					/* new is shorter (true) */
-					if (prev == NULL)
-						return -1;
-					rc += _db_tree_remove(&(ec_iter->nxt_t),
-							      ec_iter->nxt_t);
-					ec_iter->act_t = c_iter->act_t;
-					ec_iter->act_t_flg = true;
+				if (x_iter == NULL)
+					goto prune_next_node;
+			}
+			if (n_iter->nxt_f) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags |= _DB_IST_M_MATCHSET;
+				cnt += _db_tree_prune(&x_iter->nxt_f,
+						      n_iter->nxt_f,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					/* don't return yet, we need to check
+					 * the current node */
 				}
-				if (c_iter->act_f_flg && ec_iter->nxt_f) {
-					/* new is shorter (false) */
-					if (prev == NULL)
-						return -1;
-					rc += _db_tree_remove(&(ec_iter->nxt_f),
-							      ec_iter->nxt_f);
-					ec_iter->act_f = c_iter->act_f;
-					ec_iter->act_f_flg = true;
+				if (x_iter == NULL)
+					goto prune_next_node;
+			}
+
+			/* remove the node? */
+			if (!_db_tree_act_check(x_iter, state_new.action) &&
+			    (state_new.flags & _DB_IST_MATCH) &&
+			    (state_new.flags & _DB_IST_N_FINISHED) &&
+			    (state_new.flags & _DB_IST_X_PREFIX)) {
+				/* yes - the new tree is "shorter" */
+				cnt += _db_tree_remove(&state->sx->chains,
+						       x_iter);
+				if (state->sx->chains == NULL)
+					goto prune_return;
+			} else if (!_db_tree_act_check(x_iter, state_new.action)
+				   && (state_new.flags & _DB_IST_MATCH) &&
+				   (state_new.flags & _DB_IST_X_FINISHED) &&
+				   (state_new.flags & _DB_IST_N_PREFIX)) {
+				/* no - the new tree is "longer" */
+				goto prune_return;
+			}
+		} else if (_db_chain_lt(x_iter, n_iter)) {
+			/* bail if we have a prefix on the new tree */
+			if (state->flags & _DB_IST_N_PREFIX)
+				goto prune_return;
+
+			/* check the next level in the existing tree */
+			if (x_iter->nxt_t) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags &= ~_DB_IST_MATCH;
+				state_nxt.flags |= _DB_IST_X_PREFIX;
+				cnt += _db_tree_prune(&x_iter->nxt_t, n_iter,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					goto prune_return;
 				}
+				if (x_iter == NULL)
+					goto prune_next_node;
+			}
+			if (x_iter->nxt_f) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags &= ~_DB_IST_MATCH;
+				state_nxt.flags |= _DB_IST_X_PREFIX;
+				cnt += _db_tree_prune(&x_iter->nxt_f, n_iter,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					goto prune_return;
+				}
+				if (x_iter == NULL)
+					goto prune_next_node;
+			}
+		} else {
+			/* bail if we have a prefix on the existing tree */
+			if (state->flags & _DB_IST_X_PREFIX)
+				goto prune_return;
 
-				return rc;
+			/* check the next level in the new tree */
+			if (n_iter->nxt_t) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags &= ~_DB_IST_MATCH;
+				state_nxt.flags |= _DB_IST_N_PREFIX;
+				cnt += _db_tree_prune(&x_iter, n_iter->nxt_t,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					goto prune_return;
+				}
+				if (x_iter == NULL)
+					goto prune_next_node;
 			}
-
-			if (c_iter->nxt_t && ec_iter->act_t_flg)
-				/* existing is shorter (true) */
-				return -1;
-			if (c_iter->nxt_f && ec_iter->act_f_flg)
-				/* existing is shorter (false) */
-				return -1;
-
-			if (c_iter->nxt_t) {
-				state_new = *state;
-				state_new.matched = true;
-				rc_tmp = _db_tree_sub_prune((prev ?
-							     &ec_iter : NULL),
-							    ec_iter->nxt_t,
-							    c_iter->nxt_t,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-				if (state->prefix_new && rc_tmp < 0)
-					return (rc > 0 ? rc : rc_tmp);
-			}
-			if (c_iter->nxt_f) {
-				state_new = *state;
-				state_new.matched = true;
-				rc_tmp = _db_tree_sub_prune((prev ?
-							     &ec_iter : NULL),
-							    ec_iter->nxt_f,
-							    c_iter->nxt_f,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-				if (state->prefix_new && rc_tmp < 0)
-					return (rc > 0 ? rc : rc_tmp);
-			}
-		} else if (db_chain_lt(ec_iter, c_iter)) {
-			/* less than */
-			if (state->matched || state->prefix_new)
-				goto next;
-			state_new = *state;
-			state_new.prefix_exist = true;
-
-			if (ec_iter->nxt_t) {
-				rc_tmp = _db_tree_sub_prune((prev ?
-							     &ec_iter : NULL),
-							    ec_iter->nxt_t,
-							    c_iter,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-			}
-			if (ec_iter->nxt_f) {
-				rc_tmp = _db_tree_sub_prune((prev ?
-							     &ec_iter : NULL),
-							    ec_iter->nxt_f,
-							    c_iter,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-			}
-		} else if (db_chain_gt(ec_iter, c_iter)) {
-			/* greater than */
-			if (state->matched || state->prefix_exist)
-				goto next;
-			state_new = *state;
-			state_new.prefix_new = true;
-
-			if (c_iter->nxt_t) {
-				rc_tmp = _db_tree_sub_prune(NULL,
-							    ec_iter,
-							    c_iter->nxt_t,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-				if (rc_tmp < 0)
-					return (rc > 0 ? rc : rc_tmp);
-			}
-			if (c_iter->nxt_f) {
-				rc_tmp = _db_tree_sub_prune(NULL,
-							    ec_iter,
-							    c_iter->nxt_f,
-							    &state_new);
-				rc += (rc_tmp > 0 ? rc_tmp : 0);
-				if (rc_tmp < 0)
-					return (rc > 0 ? rc : rc_tmp);
+			if (n_iter->nxt_f) {
+				_db_node_get(x_iter);
+				state_nxt = *state;
+				state_nxt.flags &= ~_DB_IST_MATCH;
+				state_nxt.flags |= _DB_IST_N_PREFIX;
+				cnt += _db_tree_prune(&x_iter, n_iter->nxt_f,
+						      &state_nxt);
+				cnt += _db_node_put(&x_iter);
+				if (state_nxt.flags & _DB_IST_MATCH) {
+					state_new.flags |= state_nxt.flags;
+					goto prune_return;
+				}
+				if (x_iter == NULL)
+					goto prune_next_node;
 			}
 		}
 
-next:
-		/* re-check current node and advance to the next node */
-		if (db_chain_zombie(ec_iter)) {
-			ec_iter_tmp = ec_iter->lvl_nxt;
-			rc += _db_tree_remove(prev, ec_iter);
-			ec_iter = ec_iter_tmp;
-		} else
-			ec_iter = ec_iter->lvl_nxt;
-	} while (ec_iter);
+prune_next_node:
+		/* check next node on this level */
+		x_iter = x_iter_next;
+	} while (x_iter);
 
-	return rc;
+	// if we are falling through, we clearly didn't match on anything
+	state_new.flags &= ~_DB_IST_MATCH;
+
+prune_return:
+	/* no more nodes on this level, return to the level above */
+	if (state_new.flags & _DB_IST_MATCH)
+		state->flags |= state_new.flags;
+	else
+		state->flags &= ~_DB_IST_MATCH;
+	return cnt;
+}
+
+/**
+ * Add a new tree into an existing tree
+ * @param existing pointer to the existing tree
+ * @param new pointer to the new tree
+ * @param state pointer to a state structure
+ *
+ * This function adds the new tree into the existing tree, fetching additional
+ * references as necessary.  Returns zero on success, negative values on
+ * failure.
+ *
+ */
+static int _db_tree_add(struct db_arg_chain_tree **existing,
+			struct db_arg_chain_tree *new,
+			struct db_iter_state *state)
+{
+	int rc;
+	struct db_arg_chain_tree *x_iter = *existing;
+	struct db_arg_chain_tree *n_iter = new;
+
+	do {
+		if (_db_chain_eq(x_iter, n_iter)) {
+			if (n_iter->act_t_flg) {
+				if (!x_iter->act_t_flg) {
+					/* new node has a true action */
+
+					/* do the actions match? */
+					rc = _db_tree_act_check(x_iter->nxt_t,
+								n_iter->act_t);
+					if (rc != 0)
+						return rc;
+
+					/* update with the new action */
+					rc = _db_node_put(&x_iter->nxt_t);
+					x_iter->nxt_t = NULL;
+					x_iter->act_t = n_iter->act_t;
+					x_iter->act_t_flg = true;
+					state->sx->node_cnt -= rc;
+				} else if (n_iter->act_t != x_iter->act_t) {
+					/* if we are dealing with a 64-bit
+					 * comparison, we need to adjust our
+					 * action based on the full 64-bit
+					 * value to ensure we handle GT/GE
+					 * comparisons correctly */
+					if (n_iter->arg_h_flg &&
+					    (n_iter->datum_full >
+					     x_iter->datum_full))
+						x_iter->act_t = n_iter->act_t;
+					if (_db_chain_leaf(x_iter) ||
+					    _db_chain_leaf(n_iter))
+						return -EEXIST;
+				}
+			}
+			if (n_iter->act_f_flg) {
+				if (!x_iter->act_f_flg) {
+					/* new node has a false action */
+
+					/* do the actions match? */
+					rc = _db_tree_act_check(x_iter->nxt_f,
+								n_iter->act_f);
+					if (rc != 0)
+						return rc;
+
+					/* update with the new action */
+					rc = _db_node_put(&x_iter->nxt_f);
+					x_iter->nxt_f = NULL;
+					x_iter->act_f = n_iter->act_f;
+					x_iter->act_f_flg = true;
+					state->sx->node_cnt -= rc;
+				} else if (n_iter->act_f != x_iter->act_f) {
+					/* if we are dealing with a 64-bit
+					 * comparison, we need to adjust our
+					 * action based on the full 64-bit
+					 * value to ensure we handle LT/LE
+					 * comparisons correctly */
+					if (n_iter->arg_h_flg &&
+					    (n_iter->datum_full <
+					     x_iter->datum_full))
+						x_iter->act_t = n_iter->act_t;
+					if (_db_chain_leaf(x_iter) ||
+					    _db_chain_leaf(n_iter))
+						return -EEXIST;
+				}
+			}
+
+			if (n_iter->nxt_t) {
+				if (x_iter->nxt_t) {
+					/* compare the next level */
+					rc = _db_tree_add(&x_iter->nxt_t,
+							  n_iter->nxt_t,
+							  state);
+					if (rc != 0)
+						return rc;
+				} else if (!x_iter->act_t_flg) {
+					/* add a new sub-tree */
+					x_iter->nxt_t = _db_node_get(n_iter->nxt_t);
+				} else
+					/* done - existing tree is "shorter" */
+					return 0;
+			}
+			if (n_iter->nxt_f) {
+				if (x_iter->nxt_f) {
+					/* compare the next level */
+					rc = _db_tree_add(&x_iter->nxt_f,
+							  n_iter->nxt_f,
+							  state);
+					if (rc != 0)
+						return rc;
+				} else if (!x_iter->act_f_flg) {
+					/* add a new sub-tree */
+					x_iter->nxt_f = _db_node_get(n_iter->nxt_f);
+				} else
+					/* done - existing tree is "shorter" */
+					return 0;
+			}
+
+			return 0;
+		} else if (!_db_chain_lt(x_iter, n_iter)) {
+			/* try to move along the current level */
+			if (x_iter->lvl_nxt == NULL) {
+				/* add to the end of this level */
+				n_iter->lvl_prv = _db_node_get(x_iter);
+				x_iter->lvl_nxt = _db_node_get(n_iter);
+				return 0;
+			} else
+				/* next */
+				x_iter = x_iter->lvl_nxt;
+		} else {
+			/* add before the existing node on this level*/
+			if (x_iter->lvl_prv != NULL) {
+				x_iter->lvl_prv->lvl_nxt = _db_node_get(n_iter);
+				n_iter->lvl_prv = x_iter->lvl_prv;
+				x_iter->lvl_prv = _db_node_get(n_iter);
+				n_iter->lvl_nxt = x_iter;
+			} else {
+				x_iter->lvl_prv = _db_node_get(n_iter);
+				n_iter->lvl_nxt = _db_node_get(x_iter);
+			}
+			if (*existing == x_iter) {
+				*existing = _db_node_get(n_iter);
+				_db_node_put(&x_iter);
+			}
+			return 0;
+		}
+	} while (x_iter);
+
+	return 0;
 }
 
 /**
@@ -367,7 +835,7 @@ static void _db_reset(struct db_filter *db)
 		s_iter = db->syscalls;
 		while (s_iter != NULL) {
 			db->syscalls = s_iter->next;
-			_db_tree_free(s_iter->chains);
+			_db_tree_put(&s_iter->chains);
 			free(s_iter);
 			s_iter = db->syscalls;
 		}
@@ -381,7 +849,6 @@ static void _db_reset(struct db_filter *db)
 		r_iter = db->rules;
 		while (r_iter != NULL) {
 			db->rules = r_iter->next;
-			free(r_iter->args);
 			free(r_iter);
 			r_iter = db->rules;
 		}
@@ -401,15 +868,12 @@ static struct db_filter *_db_init(const struct arch_def *arch)
 {
 	struct db_filter *db;
 
-	db = malloc(sizeof(*db));
+	db = zmalloc(sizeof(*db));
 	if (db == NULL)
 		return NULL;
 
-	/* clear the buffer for the first time and set the arch */
-	memset(db, 0, sizeof(*db));
+	/* set the arch and reset the DB to a known state */
 	db->arch = arch;
-
-	/* reset the DB to a known state */
 	_db_reset(db);
 
 	return db;
@@ -492,10 +956,9 @@ static int _db_syscall_priority(struct db_filter *db,
 	}
 
 	/* no existing syscall entry - create a phantom entry */
-	s_new = malloc(sizeof(*s_new));
+	s_new = zmalloc(sizeof(*s_new));
 	if (s_new == NULL)
 		return -ENOMEM;
-	memset(s_new, 0, sizeof(*s_new));
 	s_new->num = syscall;
 	s_new->priority = sys_pri;
 	s_new->valid = false;
@@ -510,6 +973,57 @@ static int _db_syscall_priority(struct db_filter *db,
 	}
 
 	return 0;
+}
+
+/**
+ * Create a new rule
+ * @param strict the strict value
+ * @param action the rule's action
+ * @param syscall the syscall number
+ * @param chain the syscall argument filter
+ *
+ * This function creates a new rule structure based on the given arguments.
+ * Returns a pointer to the new rule on success, NULL on failure.
+ *
+ */
+static struct db_api_rule_list *_db_rule_new(bool strict,
+					     uint32_t action, int syscall,
+					     struct db_api_arg *chain)
+{
+	struct db_api_rule_list *rule;
+
+	rule = zmalloc(sizeof(*rule));
+	if (rule == NULL)
+		return NULL;
+	rule->action = action;
+	rule->syscall = syscall;
+	rule->strict = strict;
+	memcpy(rule->args, chain, sizeof(*chain) * ARG_COUNT_MAX);
+
+	return rule;
+}
+
+/**
+ * Duplicate an existing filter rule
+ * @param src the rule to duplicate
+ *
+ * This function makes an exact copy of the given rule, but does not add it
+ * to any lists.  Returns a pointer to the new rule on success, NULL on
+ * failure.
+ *
+ */
+struct db_api_rule_list *db_rule_dup(const struct db_api_rule_list *src)
+{
+	struct db_api_rule_list *dest;
+
+	dest = malloc(sizeof(*dest));
+	if (dest == NULL)
+		return NULL;
+	memcpy(dest, src, sizeof(*dest));
+	dest->prev = NULL;
+	dest->next = NULL;
+
+	return dest;
 }
 
 /**
@@ -548,6 +1062,7 @@ int db_col_reset(struct db_filter_col *col, uint32_t def_action)
 	col->attr.act_badarch = SCMP_ACT_KILL;
 	col->attr.nnp_enable = 1;
 	col->attr.tsync_enable = 0;
+	col->attr.api_tskip = 0;
 
 	/* set the state */
 	col->state = _DB_STA_VALID;
@@ -586,12 +1101,9 @@ struct db_filter_col *db_col_init(uint32_t def_action)
 {
 	struct db_filter_col *col;
 
-	col = malloc(sizeof(*col));
+	col = zmalloc(sizeof(*col));
 	if (col == NULL)
 		return NULL;
-
-	/* clear the buffer for the first time */
-	memset(col, 0, sizeof(*col));
 
 	/* reset the DB to a known state */
 	if (db_col_reset(col, def_action) < 0)
@@ -643,18 +1155,8 @@ void db_col_release(struct db_filter_col *col)
  */
 int db_action_valid(uint32_t action)
 {
-	if (action == SCMP_ACT_KILL)
+	if (sys_chk_seccomp_action(action) == 1)
 		return 0;
-	else if (action == SCMP_ACT_TRAP)
-		return 0;
-	else if ((action == SCMP_ACT_ERRNO(action & 0x0000ffff)) &&
-		 ((action & 0x0000ffff) < MAX_ERRNO))
-		return 0;
-	else if (action == SCMP_ACT_TRACE(action & 0x0000ffff))
-		return 0;
-	else if (action == SCMP_ACT_ALLOW)
-		return 0;
-
 	return -EINVAL;
 }
 
@@ -690,7 +1192,7 @@ int db_col_merge(struct db_filter_col *col_dst, struct db_filter_col *col_src)
 
 	/* verify that the endianess is a match */
 	if (col_dst->endian != col_src->endian)
-		return -EEXIST;
+		return -EDOM;
 
 	/* make sure we don't have any arch/filter collisions */
 	for (iter_a = 0; iter_a < col_dst->filter_cnt; iter_a++) {
@@ -772,6 +1274,12 @@ int db_col_attr_get(const struct db_filter_col *col,
 	case SCMP_FLTATR_CTL_TSYNC:
 		*value = col->attr.tsync_enable;
 		break;
+	case SCMP_FLTATR_API_TSKIP:
+		*value = col->attr.api_tskip;
+		break;
+	case SCMP_FLTATR_CTL_LOG:
+		*value = col->attr.log_enable;
+		break;
 	default:
 		rc = -EEXIST;
 		break;
@@ -818,6 +1326,20 @@ int db_col_attr_set(struct db_filter_col *col,
 		} else if (rc == 0)
 			/* unsupported */
 			rc = -EOPNOTSUPP;
+		break;
+	case SCMP_FLTATR_API_TSKIP:
+		col->attr.api_tskip = (value ? 1 : 0);
+		break;
+	case SCMP_FLTATR_CTL_LOG:
+		rc = sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_LOG);
+		if (rc == 1) {
+			/* supported */
+			rc = 0;
+			col->attr.log_enable = (value ? 1 : 0);
+		} else if (rc == 0) {
+			/* unsupported */
+			rc = -EOPNOTSUPP;
+		}
 		break;
 	default:
 		rc = -EEXIST;
@@ -867,7 +1389,7 @@ int db_col_db_add(struct db_filter_col *col, struct db_filter *db)
 	struct db_filter **dbs;
 
 	if (col->endian != 0 && col->endian != db->arch->endian)
-		return -EEXIST;
+		return -EDOM;
 
 	if (db_col_arch_exist(col, db->arch->token))
 		return -EEXIST;
@@ -978,37 +1500,32 @@ static void _db_node_mask_fixup(struct db_arg_chain_tree *node)
 /**
  * Generate a new filter rule for a 64 bit system
  * @param arch the architecture definition
- * @param action the filter action
- * @param syscall the syscall number
- * @param chain argument filter chain
+ * @param rule the new filter rule
  *
  * This function generates a new syscall filter for a 64 bit system. Returns
  * zero on success, negative values on failure.
  *
  */
 static struct db_sys_list *_db_rule_gen_64(const struct arch_def *arch,
-					   uint32_t action,
-					   unsigned int syscall,
-					   struct db_api_arg *chain)
+					   const struct db_api_rule_list *rule)
 {
 	unsigned int iter;
-	int chain_len_max;
 	struct db_sys_list *s_new;
-	struct db_arg_chain_tree *c_iter_hi = NULL, *c_iter_lo = NULL;
-	struct db_arg_chain_tree *c_prev_hi = NULL, *c_prev_lo = NULL;
-	bool tf_flag;
+	const struct db_api_arg *chain = rule->args;
+	struct db_arg_chain_tree *c_iter[3] = { NULL, NULL, NULL };
+	struct db_arg_chain_tree *c_prev[3] = { NULL, NULL, NULL };
+	enum scmp_compare op_prev = _SCMP_CMP_MIN;
+	unsigned int arg;
+	scmp_datum_t mask;
+	scmp_datum_t datum;
 
-	s_new = malloc(sizeof(*s_new));
+	s_new = zmalloc(sizeof(*s_new));
 	if (s_new == NULL)
 		return NULL;
-	memset(s_new, 0, sizeof(*s_new));
-	s_new->num = syscall;
+	s_new->num = rule->syscall;
 	s_new->valid = true;
 	/* run through the argument chain */
-	chain_len_max = arch_arg_count_max(arch);
-	if (chain_len_max < 0)
-		goto gen_64_failure;
-	for (iter = 0; iter < chain_len_max; iter++) {
+	for (iter = 0; iter < ARG_COUNT_MAX; iter++) {
 		if (chain[iter].valid == 0)
 			continue;
 
@@ -1019,98 +1536,320 @@ static struct db_sys_list *_db_rule_gen_64(const struct arch_def *arch,
 		    !_db_arg_cmp_need_lo(&chain[iter]))
 			continue;
 
-		c_iter_hi = malloc(sizeof(*c_iter_hi));
-		if (c_iter_hi == NULL)
+		c_iter[0] = zmalloc(sizeof(*c_iter[0]));
+		if (c_iter[0] == NULL)
 			goto gen_64_failure;
-		memset(c_iter_hi, 0, sizeof(*c_iter_hi));
-		c_iter_hi->refcnt = 1;
-		c_iter_lo = malloc(sizeof(*c_iter_lo));
-		if (c_iter_lo == NULL) {
-			free(c_iter_hi);
+		c_iter[1] = zmalloc(sizeof(*c_iter[1]));
+		if (c_iter[1] == NULL) {
+			free(c_iter[0]);
 			goto gen_64_failure;
 		}
-		memset(c_iter_lo, 0, sizeof(*c_iter_lo));
-		c_iter_lo->refcnt = 1;
+		c_iter[2] = NULL;
 
-		/* link this level to the previous level */
-		if (c_prev_lo != NULL) {
-			if (!tf_flag) {
-				c_prev_lo->nxt_f = c_iter_hi;
-				c_prev_hi->nxt_f = c_iter_hi;
-				c_iter_hi->refcnt++;
-			} else
-				c_prev_lo->nxt_t = c_iter_hi;
-		} else
-			s_new->chains = c_iter_hi;
-		s_new->node_cnt += 2;
+		arg = chain[iter].arg;
+		mask = chain[iter].mask;
+		datum = chain[iter].datum;
 
-		/* set the arg, op, and datum fields */
-		c_iter_hi->arg = chain[iter].arg;
-		c_iter_lo->arg = chain[iter].arg;
-		c_iter_hi->arg_offset = arch_arg_offset_hi(arch,
-							   c_iter_hi->arg);
-		c_iter_lo->arg_offset = arch_arg_offset_lo(arch,
-							   c_iter_lo->arg);
+		/* NOTE: with the idea that a picture is worth a thousand
+		 *       words, i'm presenting the following diagrams which
+		 *       show how we should compare 64-bit syscall arguments
+		 *       using 32-bit comparisons.
+		 *
+		 *       in the diagrams below "A(x)" is the syscall argument
+		 *       being evaluated and "R(x)" is the syscall argument
+		 *       value specified in the libseccomp rule.  the "ACCEPT"
+		 *       verdict indicates a rule match and processing should
+		 *       continue on to the rest of the rule, or the final rule
+		 *       action should be triggered.  the "REJECT" verdict
+		 *       indicates that the rule does not match and processing
+		 *       should continue to the next rule or the default
+		 *       action.
+		 *
+		 * SCMP_CMP_GT:
+		 *                   +------------------+
+		 *                +--|  Ah(x) >  Rh(x)  |------+
+		 *                |  +------------------+      |
+		 *              FALSE                         TRUE     A
+		 *                |                            |       C
+		 *                +-----------+                +---->  C
+		 *                            v                +---->  E
+		 *                   +------------------+      |       P
+		 *                +--|  Ah(x) == Rh(x)  |--+   |       T
+		 *        R       |  +------------------+  |   |
+		 *        E     FALSE                     TRUE |
+		 *        J  <----+                        |   |
+		 *        E  <----+           +------------+   |
+		 *        C     FALSE         v                |
+		 *        T       |  +------------------+      |
+		 *                +--|  Al(x) >  Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 * SCMP_CMP_GE:
+		 *                   +------------------+
+		 *                +--|  Ah(x) >  Rh(x)  |------+
+		 *                |  +------------------+      |
+		 *              FALSE                         TRUE     A
+		 *                |                            |       C
+		 *                +-----------+                +---->  C
+		 *                            v                +---->  E
+		 *                   +------------------+      |       P
+		 *                +--|  Ah(x) == Rh(x)  |--+   |       T
+		 *        R       |  +------------------+  |   |
+		 *        E     FALSE                     TRUE |
+		 *        J  <----+                        |   |
+		 *        E  <----+           +------------+   |
+		 *        C     FALSE         v                |
+		 *        T       |  +------------------+      |
+		 *                +--|  Al(x) >= Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 * SCMP_CMP_LT:
+		 *                   +------------------+
+		 *                +--|  Ah(x) >  Rh(x)  |------+
+		 *                |  +------------------+      |
+		 *              FALSE                         TRUE     R
+		 *                |                            |       E
+		 *                +-----------+                +---->  J
+		 *                            v                +---->  E
+		 *                   +------------------+      |       C
+		 *                +--|  Ah(x) == Rh(x)  |--+   |       T
+		 *        A       |  +------------------+  |   |
+		 *        C     FALSE                     TRUE |
+		 *        C  <----+                        |   |
+		 *        E  <----+           +------------+   |
+		 *        P     FALSE         v                |
+		 *        T       |  +------------------+      |
+		 *                +--|  Al(x) >= Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 * SCMP_CMP_LE:
+		 *                   +------------------+
+		 *                +--|  Ah(x) >  Rh(x)  |------+
+		 *                |  +------------------+      |
+		 *              FALSE                         TRUE     R
+		 *                |                            |       E
+		 *                +-----------+                +---->  J
+		 *                            v                +---->  E
+		 *                   +------------------+      |       C
+		 *                +--|  Ah(x) == Rh(x)  |--+   |       T
+		 *        A       |  +------------------+  |   |
+		 *        C     FALSE                     TRUE |
+		 *        C  <----+                        |   |
+		 *        E  <----+           +------------+   |
+		 *        P     FALSE         v                |
+		 *        T       |  +------------------+      |
+		 *                +--|  Al(x) >  Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 * SCMP_CMP_EQ:
+		 *                   +------------------+
+		 *                +--|  Ah(x) == Rh(x)  |--+
+		 *        R       |  +------------------+  |           A
+		 *        E     FALSE                     TRUE         C
+		 *        J  <----+                        |           C
+		 *        E  <----+           +------------+   +---->  E
+		 *        C     FALSE         v                |       P
+		 *        T       |  +------------------+      |       T
+		 *                +--|  Al(x) == Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 * SCMP_CMP_NE:
+		 *                   +------------------+
+		 *                +--|  Ah(x) == Rh(x)  |--+
+		 *        A       |  +------------------+  |           R
+		 *        C     FALSE                     TRUE         E
+		 *        C  <----+                        |           J
+		 *        E  <----+           +------------+   +---->  E
+		 *        P     FALSE         v                |       C
+		 *        T       |  +------------------+      |       T
+		 *                +--|  Al(x) == Rl(x)  |------+
+		 *                   +------------------+
+		 *
+		 */
+
+		/* setup the level */
 		switch (chain[iter].op) {
 		case SCMP_CMP_GT:
-			c_iter_hi->op = SCMP_CMP_GE;
-			c_iter_lo->op = SCMP_CMP_GT;
-			tf_flag = true;
-			break;
-		case SCMP_CMP_NE:
-			c_iter_hi->op = SCMP_CMP_EQ;
-			c_iter_lo->op = SCMP_CMP_EQ;
-			tf_flag = false;
-			break;
-		case SCMP_CMP_LT:
-			c_iter_hi->op = SCMP_CMP_GE;
-			c_iter_lo->op = SCMP_CMP_GE;
-			tf_flag = false;
-			break;
+		case SCMP_CMP_GE:
 		case SCMP_CMP_LE:
-			c_iter_hi->op = SCMP_CMP_GE;
-			c_iter_lo->op = SCMP_CMP_GT;
-			tf_flag = false;
+		case SCMP_CMP_LT:
+			c_iter[2] = zmalloc(sizeof(*c_iter[2]));
+			if (c_iter[2] == NULL) {
+				free(c_iter[0]);
+				free(c_iter[1]);
+				goto gen_64_failure;
+			}
+
+			c_iter[0]->arg = arg;
+			c_iter[1]->arg = arg;
+			c_iter[2]->arg = arg;
+			c_iter[0]->arg_h_flg = true;
+			c_iter[1]->arg_h_flg = true;
+			c_iter[2]->arg_h_flg = false;
+			c_iter[0]->arg_offset = arch_arg_offset_hi(arch, arg);
+			c_iter[1]->arg_offset = arch_arg_offset_hi(arch, arg);
+			c_iter[2]->arg_offset = arch_arg_offset_lo(arch, arg);
+
+			c_iter[0]->mask = D64_HI(mask);
+			c_iter[1]->mask = D64_HI(mask);
+			c_iter[2]->mask = D64_LO(mask);
+			c_iter[0]->datum = D64_HI(datum);
+			c_iter[1]->datum = D64_HI(datum);
+			c_iter[2]->datum = D64_LO(datum);
+			c_iter[0]->datum_full = datum;
+			c_iter[1]->datum_full = datum;
+			c_iter[2]->datum_full = datum;
+
+			_db_node_mask_fixup(c_iter[0]);
+			_db_node_mask_fixup(c_iter[1]);
+			_db_node_mask_fixup(c_iter[2]);
+
+			c_iter[0]->op = SCMP_CMP_GT;
+			c_iter[1]->op = SCMP_CMP_EQ;
+			switch (chain[iter].op) {
+			case SCMP_CMP_GT:
+			case SCMP_CMP_LE:
+				c_iter[2]->op = SCMP_CMP_GT;
+				break;
+			case SCMP_CMP_GE:
+			case SCMP_CMP_LT:
+				c_iter[2]->op = SCMP_CMP_GE;
+				break;
+			default:
+				/* we should never get here */
+				goto gen_64_failure;
+			}
+			c_iter[0]->op_orig = chain[iter].op;
+			c_iter[1]->op_orig = chain[iter].op;
+			c_iter[2]->op_orig = chain[iter].op;
+
+			c_iter[0]->nxt_f = _db_node_get(c_iter[1]);
+			c_iter[1]->nxt_t = _db_node_get(c_iter[2]);
+			break;
+		case SCMP_CMP_EQ:
+		case SCMP_CMP_MASKED_EQ:
+		case SCMP_CMP_NE:
+			c_iter[0]->arg = arg;
+			c_iter[1]->arg = arg;
+			c_iter[0]->arg_h_flg = true;
+			c_iter[1]->arg_h_flg = false;
+			c_iter[0]->arg_offset = arch_arg_offset_hi(arch, arg);
+			c_iter[1]->arg_offset = arch_arg_offset_lo(arch, arg);
+
+			c_iter[0]->mask = D64_HI(mask);
+			c_iter[1]->mask = D64_LO(mask);
+			c_iter[0]->datum = D64_HI(datum);
+			c_iter[1]->datum = D64_LO(datum);
+			c_iter[0]->datum_full = datum;
+			c_iter[1]->datum_full = datum;
+
+			_db_node_mask_fixup(c_iter[0]);
+			_db_node_mask_fixup(c_iter[1]);
+
+			switch (chain[iter].op) {
+			case SCMP_CMP_MASKED_EQ:
+				c_iter[0]->op = SCMP_CMP_MASKED_EQ;
+				c_iter[1]->op = SCMP_CMP_MASKED_EQ;
+				break;
+			default:
+				c_iter[0]->op = SCMP_CMP_EQ;
+				c_iter[1]->op = SCMP_CMP_EQ;
+			}
+			c_iter[0]->op_orig = chain[iter].op;
+			c_iter[1]->op_orig = chain[iter].op;
+
+			c_iter[0]->nxt_t = _db_node_get(c_iter[1]);
 			break;
 		default:
-			c_iter_hi->op = chain[iter].op;
-			c_iter_lo->op = chain[iter].op;
-			tf_flag = true;
+			/* we should never get here */
+			goto gen_64_failure;
 		}
-		c_iter_hi->mask = D64_HI(chain[iter].mask);
-		c_iter_lo->mask = D64_LO(chain[iter].mask);
-		c_iter_hi->datum = D64_HI(chain[iter].datum);
-		c_iter_lo->datum = D64_LO(chain[iter].datum);
 
-		/* fixup the mask/datum */
-		_db_node_mask_fixup(c_iter_hi);
-		_db_node_mask_fixup(c_iter_lo);
+		/* link this level to the previous level */
+		if (c_prev[0] != NULL) {
+			switch (op_prev) {
+			case SCMP_CMP_GT:
+			case SCMP_CMP_GE:
+				c_prev[0]->nxt_t = _db_node_get(c_iter[0]);
+				c_prev[2]->nxt_t = _db_node_get(c_iter[0]);
+				break;
+			case SCMP_CMP_EQ:
+			case SCMP_CMP_MASKED_EQ:
+				c_prev[1]->nxt_t = _db_node_get(c_iter[0]);
+				break;
+			case SCMP_CMP_LE:
+			case SCMP_CMP_LT:
+				c_prev[1]->nxt_f = _db_node_get(c_iter[0]);
+				c_prev[2]->nxt_f = _db_node_get(c_iter[0]);
+				break;
+			case SCMP_CMP_NE:
+				c_prev[0]->nxt_f = _db_node_get(c_iter[0]);
+				c_prev[1]->nxt_f = _db_node_get(c_iter[0]);
+				break;
+			default:
+				/* we should never get here */
+				goto gen_64_failure;
+			}
+		} else
+			s_new->chains = _db_node_get(c_iter[0]);
 
-		/* link the hi and lo chain nodes */
-		c_iter_hi->nxt_t = c_iter_lo;
+		/* update the node count */
+		switch (chain[iter].op) {
+		case SCMP_CMP_NE:
+		case SCMP_CMP_EQ:
+		case SCMP_CMP_MASKED_EQ:
+			s_new->node_cnt += 2;
+			break;
+		default:
+			s_new->node_cnt += 3;
+		}
 
-		c_prev_hi = c_iter_hi;
-		c_prev_lo = c_iter_lo;
+		/* keep pointers to this level */
+		c_prev[0] = c_iter[0];
+		c_prev[1] = c_iter[1];
+		c_prev[2] = c_iter[2];
+		op_prev = chain[iter].op;
 	}
-	if (c_iter_lo != NULL) {
-		/* set the leaf node */
-		if (!tf_flag) {
-			c_iter_lo->act_f_flg = true;
-			c_iter_lo->act_f = action;
-			c_iter_hi->act_f_flg = true;
-			c_iter_hi->act_f = action;
-		} else {
-			c_iter_lo->act_t_flg = true;
-			c_iter_lo->act_t = action;
+	if (c_iter[0] != NULL) {
+		/* set the actions on the last layer */
+		switch (op_prev) {
+		case SCMP_CMP_GT:
+		case SCMP_CMP_GE:
+			c_iter[0]->act_t_flg = true;
+			c_iter[0]->act_t = rule->action;
+			c_iter[2]->act_t_flg = true;
+			c_iter[2]->act_t = rule->action;
+			break;
+		case SCMP_CMP_LE:
+		case SCMP_CMP_LT:
+			c_iter[1]->act_f_flg = true;
+			c_iter[1]->act_f = rule->action;
+			c_iter[2]->act_f_flg = true;
+			c_iter[2]->act_f = rule->action;
+			break;
+		case SCMP_CMP_EQ:
+		case SCMP_CMP_MASKED_EQ:
+			c_iter[1]->act_t_flg = true;
+			c_iter[1]->act_t = rule->action;
+			break;
+		case SCMP_CMP_NE:
+			c_iter[0]->act_f_flg = true;
+			c_iter[0]->act_f = rule->action;
+			c_iter[1]->act_f_flg = true;
+			c_iter[1]->act_f = rule->action;
+			break;
+		default:
+			/* we should never get here */
+			goto gen_64_failure;
 		}
 	} else
-		s_new->action = action;
+		s_new->action = rule->action;
 
 	return s_new;
 
 gen_64_failure:
 	/* free the new chain and its syscall struct */
-	_db_tree_free(s_new->chains);
+	_db_tree_put(&s_new->chains);
 	free(s_new);
 	return NULL;
 }
@@ -1118,36 +1857,28 @@ gen_64_failure:
 /**
  * Generate a new filter rule for a 32 bit system
  * @param arch the architecture definition
- * @param action the filter action
- * @param syscall the syscall number
- * @param chain argument filter chain
+ * @param rule the new filter rule
  *
  * This function generates a new syscall filter for a 32 bit system. Returns
  * zero on success, negative values on failure.
  *
  */
 static struct db_sys_list *_db_rule_gen_32(const struct arch_def *arch,
-					   uint32_t action,
-					   unsigned int syscall,
-					   struct db_api_arg *chain)
+					   const struct db_api_rule_list *rule)
 {
 	unsigned int iter;
-	int chain_len_max;
 	struct db_sys_list *s_new;
+	const struct db_api_arg *chain = rule->args;
 	struct db_arg_chain_tree *c_iter = NULL, *c_prev = NULL;
 	bool tf_flag;
 
-	s_new = malloc(sizeof(*s_new));
+	s_new = zmalloc(sizeof(*s_new));
 	if (s_new == NULL)
 		return NULL;
-	memset(s_new, 0, sizeof(*s_new));
-	s_new->num = syscall;
+	s_new->num = rule->syscall;
 	s_new->valid = true;
 	/* run through the argument chain */
-	chain_len_max = arch_arg_count_max(arch);
-	if (chain_len_max < 0)
-		goto gen_32_failure;
-	for (iter = 0; iter < chain_len_max; iter++) {
+	for (iter = 0; iter < ARG_COUNT_MAX; iter++) {
 		if (chain[iter].valid == 0)
 			continue;
 
@@ -1155,26 +1886,27 @@ static struct db_sys_list *_db_rule_gen_32(const struct arch_def *arch,
 		if (!_db_arg_cmp_need_lo(&chain[iter]))
 			continue;
 
-		c_iter = malloc(sizeof(*c_iter));
+		c_iter = zmalloc(sizeof(*c_iter));
 		if (c_iter == NULL)
 			goto gen_32_failure;
-		memset(c_iter, 0, sizeof(*c_iter));
-		c_iter->refcnt = 1;
 		c_iter->arg = chain[iter].arg;
+		c_iter->arg_h_flg = false;
 		c_iter->arg_offset = arch_arg_offset(arch, c_iter->arg);
 		c_iter->op = chain[iter].op;
+		c_iter->op_orig = chain[iter].op;
 		/* implicitly strips off the upper 32 bit */
 		c_iter->mask = chain[iter].mask;
 		c_iter->datum = chain[iter].datum;
+		c_iter->datum_full = chain[iter].datum;
 
 		/* link in the new node and update the chain */
 		if (c_prev != NULL) {
 			if (tf_flag)
-				c_prev->nxt_t = c_iter;
+				c_prev->nxt_t = _db_node_get(c_iter);
 			else
-				c_prev->nxt_f = c_iter;
+				c_prev->nxt_f = _db_node_get(c_iter);
 		} else
-			s_new->chains = c_iter;
+			s_new->chains = _db_node_get(c_iter);
 		s_new->node_cnt++;
 
 		/* rewrite the op to reduce the op/datum combos */
@@ -1204,19 +1936,19 @@ static struct db_sys_list *_db_rule_gen_32(const struct arch_def *arch,
 		/* set the leaf node */
 		if (tf_flag) {
 			c_iter->act_t_flg = true;
-			c_iter->act_t = action;
+			c_iter->act_t = rule->action;
 		} else {
 			c_iter->act_f_flg = true;
-			c_iter->act_f = action;
+			c_iter->act_f = rule->action;
 		}
 	} else
-		s_new->action = action;
+		s_new->action = rule->action;
 
 	return s_new;
 
 gen_32_failure:
 	/* free the new chain and its syscall struct */
-	_db_tree_free(s_new->chains);
+	_db_tree_put(&s_new->chains);
 	free(s_new);
 	return NULL;
 }
@@ -1232,20 +1964,17 @@ gen_32_failure:
  * shortest chain, or most inclusive filter match, will be entered into the
  * filter DB. Returns zero on success, negative values on failure.
  *
+ * It is important to note that in the case of failure the db may be corrupted,
+ * the caller must use the transaction mechanism if the db integrity is
+ * important.
+ *
  */
 int db_rule_add(struct db_filter *db, const struct db_api_rule_list *rule)
 {
 	int rc = -ENOMEM;
-	int syscall = rule->syscall;
-	uint32_t action = rule->action;
-	struct db_api_arg *chain = rule->args;
 	struct db_sys_list *s_new, *s_iter, *s_prev = NULL;
-	struct db_arg_chain_tree *c_iter = NULL, *c_prev = NULL;
-	struct db_arg_chain_tree *ec_iter;
-	struct db_prune_state state;
+	struct db_iter_state state;
 	bool rm_flag = false;
-	unsigned int new_chain_cnt = 0;
-	unsigned int n_cnt;
 
 	assert(db != NULL);
 
@@ -1253,34 +1982,23 @@ int db_rule_add(struct db_filter *db, const struct db_api_rule_list *rule)
 	 * worry about failure once we get to the point where we start updating
 	 * the filter db */
 	if (db->arch->size == ARCH_SIZE_64)
-		s_new = _db_rule_gen_64(db->arch, action, syscall, chain);
+		s_new = _db_rule_gen_64(db->arch, rule);
 	else if (db->arch->size == ARCH_SIZE_32)
-		s_new = _db_rule_gen_32(db->arch, action, syscall, chain);
+		s_new = _db_rule_gen_32(db->arch, rule);
 	else
 		return -EFAULT;
 	if (s_new == NULL)
 		return -ENOMEM;
-	new_chain_cnt = s_new->node_cnt;
-
-	/* no more failures allowed after this point that would result in the
-	 * stored filter being in an inconsistent state */
 
 	/* find a matching syscall/chain or insert a new one */
 	s_iter = db->syscalls;
-	while (s_iter != NULL && s_iter->num < syscall) {
+	while (s_iter != NULL && s_iter->num < rule->syscall) {
 		s_prev = s_iter;
 		s_iter = s_iter->next;
 	}
-add_reset:
-	s_new->node_cnt = new_chain_cnt;
 	s_new->priority = _DB_PRI_MASK_CHAIN - s_new->node_cnt;
-	c_prev = NULL;
-	c_iter = s_new->chains;
-	if (s_iter != NULL)
-		ec_iter = s_iter->chains;
-	else
-		ec_iter = NULL;
-	if (s_iter == NULL || s_iter->num != syscall) {
+add_reset:
+	if (s_iter == NULL || s_iter->num != rule->syscall) {
 		/* new syscall, add before s_iter */
 		if (s_prev != NULL) {
 			s_new->next = s_prev->next;
@@ -1305,183 +2023,58 @@ add_reset:
 			free(s_new);
 			rc = 0;
 			goto add_priority_update;
-		} else
+		} else {
 			/* syscall exists without any chains - existing filter
 			 * is at least as large as the new entry so cleanup and
 			 * exit */
+			_db_tree_put(&s_new->chains);
+			free(s_new);
 			goto add_free_ok;
+		}
 	} else if (s_iter->chains != NULL && s_new->chains == NULL) {
 		/* syscall exists with chains but the new filter has no chains
 		 * so we need to clear the existing chains and exit */
-		_db_tree_free(s_iter->chains);
+		_db_tree_put(&s_iter->chains);
 		s_iter->chains = NULL;
 		s_iter->node_cnt = 0;
-		s_iter->action = action;
+		s_iter->action = rule->action;
+
+		/* cleanup the new tree and return */
+		_db_tree_put(&s_new->chains);
+		free(s_new);
 		goto add_free_ok;
 	}
 
-	/* check for sub-tree matches */
+	/* prune any sub-trees that are no longer required */
 	memset(&state, 0, sizeof(state));
-	rc = _db_tree_sub_prune(&(s_iter->chains), ec_iter, c_iter, &state);
+	state.sx = s_iter;
+	state.action = rule->action;
+	rc = _db_tree_prune(&s_iter->chains, s_new->chains, &state);
 	if (rc > 0) {
+		/* we pruned at least some of the existing tree */
 		rm_flag = true;
 		s_iter->node_cnt -= rc;
-		goto add_reset;
-	} else if (rc < 0)
+		if (s_iter->chains == NULL)
+			/* we pruned the entire tree */
+			goto add_reset;
+	} else if ((state.flags & _DB_IST_M_REDUNDANT) == _DB_IST_M_REDUNDANT) {
+		/* the existing tree is "shorter", drop the new one */
+		_db_tree_put(&s_new->chains);
+		free(s_new);
 		goto add_free_ok;
-
-	/* syscall exists and has at least one existing chain - start at the
-	 * top and walk the two chains */
-	do {
-		/* insert the new rule into the existing tree */
-		if (db_chain_eq(c_iter, ec_iter)) {
-			/* found a matching node on this chain level */
-			if (db_chain_action(c_iter) &&
-			    db_chain_action(ec_iter)) {
-				/* both are "action" nodes */
-				if (c_iter->act_t_flg && ec_iter->act_t_flg) {
-					if (ec_iter->act_t != action)
-						goto add_free_exist;
-				} else if (c_iter->act_t_flg) {
-					ec_iter->act_t_flg = true;
-					ec_iter->act_t = action;
-				}
-				if (c_iter->act_f_flg && ec_iter->act_f_flg) {
-					if (ec_iter->act_f != action)
-						goto add_free_exist;
-				} else if (c_iter->act_f_flg) {
-					ec_iter->act_f_flg = true;
-					ec_iter->act_f = action;
-				}
-				if (ec_iter->act_t_flg == ec_iter->act_f_flg &&
-				    ec_iter->act_t == ec_iter->act_f) {
-					n_cnt = _db_tree_remove(
-							&(s_iter->chains),
-							ec_iter);
-					s_iter->node_cnt -= n_cnt;
-					goto add_free_ok;
-				}
-			} else if (db_chain_action(c_iter)) {
-				/* new is shorter */
-				if (c_iter->act_t_flg) {
-					rc = _db_tree_act_check(ec_iter->nxt_t,
-								action);
-					if (rc < 0)
-						goto add_free;
-					n_cnt = _db_tree_free(ec_iter->nxt_t);
-					ec_iter->nxt_t = NULL;
-					ec_iter->act_t_flg = true;
-					ec_iter->act_t = action;
-				} else {
-					rc = _db_tree_act_check(ec_iter->nxt_f,
-								action);
-					if (rc < 0)
-						goto add_free;
-					n_cnt = _db_tree_free(ec_iter->nxt_f);
-					ec_iter->nxt_f = NULL;
-					ec_iter->act_f_flg = true;
-					ec_iter->act_f = action;
-				}
-				s_iter->node_cnt -= n_cnt;
-			}
-			if (c_iter->nxt_t != NULL) {
-				if (ec_iter->nxt_t != NULL) {
-					/* jump to the next level */
-					c_prev = c_iter;
-					c_iter = c_iter->nxt_t;
-					ec_iter = ec_iter->nxt_t;
-					s_new->node_cnt--;
-				} else if (ec_iter->act_t_flg) {
-					/* existing is shorter */
-					if (ec_iter->act_t == action)
-						goto add_free_ok;
-					goto add_free_exist;
-				} else {
-					/* add a new branch */
-					c_prev = c_iter;
-					ec_iter->nxt_t = c_iter->nxt_t;
-					s_iter->node_cnt +=
-						(s_new->node_cnt - 1);
-					goto add_free_match;
-				}
-			} else if (c_iter->nxt_f != NULL) {
-				if (ec_iter->nxt_f != NULL) {
-					/* jump to the next level */
-					c_prev = c_iter;
-					c_iter = c_iter->nxt_f;
-					ec_iter = ec_iter->nxt_f;
-					s_new->node_cnt--;
-				} else if (ec_iter->act_f_flg) {
-					/* existing is shorter */
-					if (ec_iter->act_f == action)
-						goto add_free_ok;
-					goto add_free_exist;
-				} else {
-					/* add a new branch */
-					c_prev = c_iter;
-					ec_iter->nxt_f = c_iter->nxt_f;
-					s_iter->node_cnt +=
-						(s_new->node_cnt - 1);
-					goto add_free_match;
-				}
-			} else
-				goto add_free_ok;
-		} else {
-			/* need to check other nodes on this level */
-			if (db_chain_lt(c_iter, ec_iter)) {
-				if (ec_iter->lvl_prv == NULL) {
-					/* add to the start of the level */
-					ec_iter->lvl_prv = c_iter;
-					c_iter->lvl_nxt = ec_iter;
-					if (ec_iter == s_iter->chains)
-						s_iter->chains = c_iter;
-					s_iter->node_cnt += s_new->node_cnt;
-					goto add_free_match;
-				} else
-					ec_iter = ec_iter->lvl_prv;
-			} else {
-				if (ec_iter->lvl_nxt == NULL) {
-					/* add to the end of the level */
-					ec_iter->lvl_nxt = c_iter;
-					c_iter->lvl_prv = ec_iter;
-					s_iter->node_cnt += s_new->node_cnt;
-					goto add_free_match;
-				} else if (db_chain_lt(c_iter,
-						       ec_iter->lvl_nxt)) {
-					/* add new chain in between */
-					c_iter->lvl_nxt = ec_iter->lvl_nxt;
-					ec_iter->lvl_nxt->lvl_prv = c_iter;
-					ec_iter->lvl_nxt = c_iter;
-					c_iter->lvl_prv = ec_iter;
-					s_iter->node_cnt += s_new->node_cnt;
-					goto add_free_match;
-				} else
-					ec_iter = ec_iter->lvl_nxt;
-			}
-		}
-	} while ((c_iter != NULL) && (ec_iter != NULL));
-
-	/* we should never be here! */
-	return -EFAULT;
-
-add_free_exist:
-	rc = -EEXIST;
-	goto add_free;
-add_free_ok:
-	rc = 0;
-add_free:
-	/* free the new chain and its syscall struct */
-	_db_tree_free(s_new->chains);
-	free(s_new);
-	goto add_priority_update;
-add_free_match:
-	/* free the matching portion of new chain */
-	if (c_prev != NULL) {
-		c_prev->nxt_t = NULL;
-		c_prev->nxt_f = NULL;
-		_db_tree_free(s_new->chains);
 	}
+
+	/* add the new rule to the existing filter and cleanup */
+	memset(&state, 0, sizeof(state));
+	state.sx = s_iter;
+	rc = _db_tree_add(&s_iter->chains, s_new->chains, &state);
+	if (rc < 0)
+		goto add_failure;
+	s_iter->node_cnt += s_new->node_cnt;
+	s_iter->node_cnt -= _db_tree_put(&s_new->chains);
 	free(s_new);
+
+add_free_ok:
 	rc = 0;
 add_priority_update:
 	/* update the priority */
@@ -1489,6 +2082,13 @@ add_priority_update:
 		s_iter->priority &= (~_DB_PRI_MASK_CHAIN);
 		s_iter->priority |= (_DB_PRI_MASK_CHAIN - s_iter->node_cnt);
 	}
+	return rc;
+
+add_failure:
+	/* NOTE: another reminder that we don't do any db error recovery here,
+	 * use the transaction mechanism as previously mentioned */
+	_db_tree_put(&s_new->chains);
+	free(s_new);
 	return rc;
 }
 
@@ -1520,9 +2120,10 @@ int db_col_syscall_priority(struct db_filter_col *col,
 		if (rc_tmp < 0)
 			goto priority_failure;
 
-		/* if this is a pseudo syscall (syscall < 0) then we need to
-		 * rewrite the syscall for some arch specific reason */
-		if (sc_tmp < 0) {
+		/* if this is a pseudo syscall then we need to rewrite the
+		 * syscall for some arch specific reason, don't forget the
+		 * special handling for syscall -1 */
+		if (sc_tmp < -1) {
 			/* we set this as a strict op - we don't really care
 			 * since priorities are a "best effort" thing - as we
 			 * want to catch the -EDOM error and bail on this
@@ -1568,27 +2169,26 @@ int db_col_rule_add(struct db_filter_col *col,
 {
 	int rc = 0, rc_tmp;
 	unsigned int iter;
-	unsigned int chain_len;
 	unsigned int arg_num;
 	size_t chain_size;
 	struct db_api_arg *chain = NULL;
 	struct scmp_arg_cmp arg_data;
+	struct db_api_rule_list *rule, *rule_tmp;
+	struct db_filter *db;
 
 	/* collect the arguments for the filter rule */
-	chain_len = ARG_COUNT_MAX;
-	chain_size = sizeof(*chain) * chain_len;
-	chain = malloc(chain_size);
+	chain_size = sizeof(*chain) * ARG_COUNT_MAX;
+	chain = zmalloc(chain_size);
 	if (chain == NULL)
 		return -ENOMEM;
-	memset(chain, 0, chain_size);
 	for (iter = 0; iter < arg_cnt; iter++) {
 		arg_data = arg_array[iter];
 		arg_num = arg_data.arg;
-		if (arg_num < chain_len && chain[arg_num].valid == 0) {
+		if (arg_num < ARG_COUNT_MAX && chain[arg_num].valid == 0) {
 			chain[arg_num].valid = 1;
 			chain[arg_num].arg = arg_num;
 			chain[arg_num].op = arg_data.op;
-			/* XXX - we should check datum/mask size against the
+			/* TODO: we should check datum/mask size against the
 			 *	 arch definition, e.g. 64 bit datum on x86 */
 			switch (chain[arg_num].op) {
 			case SCMP_CMP_NE:
@@ -1614,13 +2214,54 @@ int db_col_rule_add(struct db_filter_col *col,
 		}
 	}
 
+	/* create a checkpoint */
+	rc = db_col_transaction_start(col);
+	if (rc != 0)
+		goto add_return;
+
+	/* add the rule to the different filters in the collection */
 	for (iter = 0; iter < col->filter_cnt; iter++) {
-		rc_tmp = arch_filter_rule_add(col, col->filters[iter], strict,
-					      action, syscall,
-					      chain_len, chain);
-		if (rc == 0 && rc_tmp < 0)
+
+		/* TODO: consolidate with db_col_transaction_start() */
+
+		db = col->filters[iter];
+
+		/* create the rule */
+		rule = _db_rule_new(strict, action, syscall, chain);
+		if (rule == NULL) {
+			rc_tmp = -ENOMEM;
+			goto add_arch_fail;
+		}
+
+		/* add the rule */
+		rc_tmp = arch_filter_rule_add(db, rule);
+		if (rc_tmp == 0) {
+			/* insert the chain to the end of the rule list */
+			rule_tmp = rule;
+			while (rule_tmp->next)
+				rule_tmp = rule_tmp->next;
+			if (db->rules != NULL) {
+				rule->prev = db->rules->prev;
+				rule_tmp->next = db->rules;
+				db->rules->prev->next = rule;
+				db->rules->prev = rule_tmp;
+			} else {
+				rule->prev = rule_tmp;
+				rule_tmp->next = rule;
+				db->rules = rule;
+			}
+		} else
+			free(rule);
+add_arch_fail:
+		if (rc_tmp != 0 && rc == 0)
 			rc = rc_tmp;
 	}
+
+	/* commit the transaction or abort */
+	if (rc == 0)
+		db_col_transaction_commit(col);
+	else
+		db_col_transaction_abort(col);
 
 add_return:
 	if (chain != NULL)
@@ -1638,17 +2279,17 @@ add_return:
  */
 int db_col_transaction_start(struct db_filter_col *col)
 {
+	int rc;
 	unsigned int iter;
-	size_t args_size;
 	struct db_filter_snap *snap;
 	struct db_filter *filter_o, *filter_s;
-	struct db_api_rule_list *rule_o, *rule_s;
+	struct db_api_rule_list *rule_o, *rule_s = NULL, *rule_tmp;
 
 	/* allocate the snapshot */
-	snap = malloc(sizeof(*snap));
+	snap = zmalloc(sizeof(*snap));
 	if (snap == NULL)
 		return -ENOMEM;
-	snap->filters = malloc(sizeof(struct db_filter *) * col->filter_cnt);
+	snap->filters = zmalloc(sizeof(struct db_filter *) * col->filter_cnt);
 	if (snap->filters == NULL) {
 		free(snap);
 		return -ENOMEM;
@@ -1672,34 +2313,34 @@ int db_col_transaction_start(struct db_filter_col *col)
 		if (rule_o == NULL)
 			continue;
 		do {
-			/* copy the rule */
-			rule_s = malloc(sizeof(*rule_s));
+
+			/* TODO: consolidate with db_col_rule_add() */
+
+			/* duplicate the rule */
+			rule_s = db_rule_dup(rule_o);
 			if (rule_s == NULL)
 				goto trans_start_failure;
-			args_size = sizeof(*rule_s->args) * rule_o->args_cnt;
-			rule_s->args = malloc(args_size);
-			if (rule_s->args == NULL) {
-				free(rule_s);
+
+			/* add the rule */
+			rc = arch_filter_rule_add(filter_s, rule_s);
+			if (rc != 0)
 				goto trans_start_failure;
-			}
-			rule_s->action = rule_o->action;
-			rule_s->syscall = rule_o->syscall;
-			rule_s->args_cnt = rule_o->args_cnt;
-			memcpy(rule_s->args, rule_o->args, args_size);
+
+			/* insert the chain to the end of the rule list */
+			rule_tmp = rule_s;
+			while (rule_tmp->next)
+				rule_tmp = rule_tmp->next;
 			if (filter_s->rules != NULL) {
 				rule_s->prev = filter_s->rules->prev;
-				rule_s->next = filter_s->rules;
+				rule_tmp->next = filter_s->rules;
 				filter_s->rules->prev->next = rule_s;
-				filter_s->rules->prev = rule_s;
+				filter_s->rules->prev = rule_tmp;
 			} else {
-				rule_s->prev = rule_s;
-				rule_s->next = rule_s;
+				rule_s->prev = rule_tmp;
+				rule_tmp->next = rule_s;
 				filter_s->rules = rule_s;
 			}
-
-			/* insert the rule into the filter */
-			if (db_rule_add(filter_s, rule_o) != 0)
-				goto trans_start_failure;
+			rule_s = NULL;
 
 			/* next rule */
 			rule_o = rule_o->next;
@@ -1713,6 +2354,8 @@ int db_col_transaction_start(struct db_filter_col *col)
 	return 0;
 
 trans_start_failure:
+	if (rule_s != NULL)
+		free(rule_s);
 	_db_snap_release(snap);
 	return -ENOMEM;
 }

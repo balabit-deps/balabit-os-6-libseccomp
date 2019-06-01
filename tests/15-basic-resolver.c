@@ -25,8 +25,34 @@
 
 #include <seccomp.h>
 
+unsigned int arch_list[] = {
+	SCMP_ARCH_NATIVE,
+	SCMP_ARCH_X86,
+	SCMP_ARCH_X86_64,
+	SCMP_ARCH_X32,
+	SCMP_ARCH_ARM,
+	SCMP_ARCH_AARCH64,
+	SCMP_ARCH_MIPS,
+	SCMP_ARCH_MIPS64,
+	SCMP_ARCH_MIPS64N32,
+	SCMP_ARCH_MIPSEL,
+	SCMP_ARCH_MIPSEL64,
+	SCMP_ARCH_MIPSEL64N32,
+	SCMP_ARCH_PPC,
+	SCMP_ARCH_PPC64,
+	SCMP_ARCH_PPC64LE,
+	SCMP_ARCH_S390,
+	SCMP_ARCH_S390X,
+	SCMP_ARCH_PARISC,
+	SCMP_ARCH_PARISC64,
+	-1
+};
+
 int main(int argc, char *argv[])
 {
+	int rc;
+	int iter = 0;
+	unsigned int arch;
 	char *name = NULL;
 
 	if (seccomp_syscall_resolve_name("open") != __NR_open)
@@ -36,31 +62,63 @@ int main(int argc, char *argv[])
 	if (seccomp_syscall_resolve_name("INVALID") != __NR_SCMP_ERROR)
 		goto fail;
 
-	if (seccomp_syscall_resolve_name_arch(SCMP_ARCH_NATIVE,
-					      "open") != __NR_open)
-		goto fail;
-	if (seccomp_syscall_resolve_name_arch(SCMP_ARCH_NATIVE,
-					      "read") != __NR_read)
-		goto fail;
-	if (seccomp_syscall_resolve_name_arch(SCMP_ARCH_NATIVE,
-					      "INVALID") != __NR_SCMP_ERROR)
+	rc = seccomp_syscall_resolve_name_rewrite(SCMP_ARCH_NATIVE, "openat");
+	if (rc != __NR_openat)
 		goto fail;
 
-	name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, __NR_open);
-	if (name == NULL || strcmp(name, "open") != 0)
-		goto fail;
-	free(name);
+	while ((arch = arch_list[iter++]) != -1) {
+		int nr_open;
+		int nr_read;
+		int nr_socket;
+		int nr_shmctl;
 
-	name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE, __NR_read);
-	if (name == NULL || strcmp(name, "read") != 0)
-		goto fail;
-	free(name);
+		if (seccomp_syscall_resolve_name_arch(arch,
+						      "INVALID") != __NR_SCMP_ERROR)
+			goto fail;
+		name = seccomp_syscall_resolve_num_arch(arch, __NR_SCMP_ERROR);
+		if (name != NULL)
+			goto fail;
 
-	name = seccomp_syscall_resolve_num_arch(SCMP_ARCH_NATIVE,
-						__NR_SCMP_ERROR);
-	if (name != NULL)
-		goto fail;
-	free(name);
+		nr_open = seccomp_syscall_resolve_name_arch(arch, "open");
+		if (nr_open == __NR_SCMP_ERROR)
+			goto fail;
+		nr_read = seccomp_syscall_resolve_name_arch(arch, "read");
+		if (nr_read == __NR_SCMP_ERROR)
+			goto fail;
+		nr_socket = seccomp_syscall_resolve_name_rewrite(arch, "socket");
+		if (nr_socket == __NR_SCMP_ERROR)
+			goto fail;
+		nr_shmctl = seccomp_syscall_resolve_name_rewrite(arch, "shmctl");
+		if (nr_shmctl == __NR_SCMP_ERROR)
+			goto fail;
+
+		name = seccomp_syscall_resolve_num_arch(arch, nr_open);
+		if (name == NULL || strcmp(name, "open") != 0)
+			goto fail;
+		free(name);
+		name = NULL;
+
+		name = seccomp_syscall_resolve_num_arch(arch, nr_read);
+		if (name == NULL || strcmp(name, "read") != 0)
+			goto fail;
+		free(name);
+		name = NULL;
+
+		name = seccomp_syscall_resolve_num_arch(arch, nr_socket);
+		if (name == NULL ||
+		    (strcmp(name, "socket") != 0 &&
+		     strcmp(name, "socketcall") != 0))
+			goto fail;
+		free(name);
+		name = NULL;
+
+		name = seccomp_syscall_resolve_num_arch(arch, nr_shmctl);
+		if (name == NULL ||
+		    (strcmp(name, "shmctl") != 0 && strcmp(name, "ipc") != 0))
+			goto fail;
+		free(name);
+		name = NULL;
+	}
 
 	return 0;
 

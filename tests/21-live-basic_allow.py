@@ -47,9 +47,11 @@ def test():
     f.add_rule(ALLOW, "rt_sigaction")
     f.add_rule(ALLOW, "rt_sigreturn")
     f.add_rule(ALLOW, "sigreturn")
+    f.add_rule(ALLOW, "sigaltstack")
     f.add_rule(ALLOW, "brk")
     f.add_rule(ALLOW, "exit_group")
     f.load()
+
     try:
         util.write_file("/dev/null")
     except OSError as ex:

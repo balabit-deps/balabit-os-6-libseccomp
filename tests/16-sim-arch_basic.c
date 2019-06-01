@@ -40,6 +40,21 @@ int main(int argc, char *argv[])
 	if (ctx == NULL)
 		return ENOMEM;
 
+	/* NOTE: not strictly necessary since we get the native arch by default
+	 *       but it serves as a good sanity check for the code and boosts
+	 *       our code coverage numbers */
+	rc = seccomp_arch_exist(ctx, seccomp_arch_native());
+	if (rc != 0)
+		goto out;
+
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_NATIVE);
+	if (rc != 0)
+		goto out;
+
+	/* NOTE: more sanity/coverage tests (see above) */
+	rc = seccomp_arch_add(ctx, SCMP_ARCH_NATIVE);
+	if (rc != 0)
+		goto out;
 	rc = seccomp_arch_remove(ctx, SCMP_ARCH_NATIVE);
 	if (rc != 0)
 		goto out;
@@ -105,6 +120,35 @@ int main(int argc, char *argv[])
 
 	rc = util_filter_output(&opts, ctx);
 	if (rc)
+		goto out;
+
+	/* not strictly necessary, but let's exercise the code paths */
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_X86);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_X86_64);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_X32);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_ARM);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_AARCH64);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_MIPSEL);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_MIPSEL64);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_MIPSEL64N32);
+	if (rc != 0)
+		goto out;
+	rc = seccomp_arch_remove(ctx, SCMP_ARCH_PPC64LE);
+	if (rc != 0)
 		goto out;
 
 out:

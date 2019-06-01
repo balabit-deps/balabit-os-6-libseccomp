@@ -1,4 +1,4 @@
-.TH "seccomp_rule_add" 3 "25 July 2012" "paul@paul-moore.com" "libseccomp Documentation"
+.TH "seccomp_rule_add" 3 "17 February 2019" "paul@paul-moore.com" "libseccomp Documentation"
 .\" //////////////////////////////////////////////////////////////////////////
 .SH NAME
 .\" //////////////////////////////////////////////////////////////////////////
@@ -21,6 +21,24 @@ seccomp_rule_add, seccomp_rule_add_exact \- Add a seccomp filter rule
 .BI "struct scmp_arg_cmp SCMP_A3(enum scmp_compare " op ", " ... ");"
 .BI "struct scmp_arg_cmp SCMP_A4(enum scmp_compare " op ", " ... ");"
 .BI "struct scmp_arg_cmp SCMP_A5(enum scmp_compare " op ", " ... ");"
+.sp
+.BI "struct scmp_arg_cmp SCMP_CMP64(unsigned int " arg ","
+.BI "                             enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A0_64(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A1_64(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A2_64(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A3_64(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A4_64(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A5_64(enum scmp_compare " op ", " ... ");"
+.sp
+.BI "struct scmp_arg_cmp SCMP_CMP32(unsigned int " arg ","
+.BI "                             enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A0_32(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A1_32(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A2_32(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A3_32(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A4_32(enum scmp_compare " op ", " ... ");"
+.BI "struct scmp_arg_cmp SCMP_A5_32(enum scmp_compare " op ", " ... ");"
 .sp
 .BI "int seccomp_rule_add(scmp_filter_ctx " ctx ", uint32_t " action ","
 .BI "                     int " syscall ", unsigned int " arg_cnt ", " ... ");"
@@ -53,8 +71,8 @@ functions all add a new filter rule to the current seccomp filter.  The
 and
 .BR seccomp_rule_add_array ()
 functions will make a "best effort" to add the rule as specified, but may alter
-the rule slightly due to architecture specifics, e.g. socket and ipc functions
-on x86.  The
+the rule slightly due to architecture specifics (e.g. internal rewriting of
+multiplexed syscalls, like socket and ipc functions on x86).  The
 .BR seccomp_rule_add_exact ()
 and
 .BR seccomp_rule_add_exact_array ()
@@ -71,15 +89,36 @@ loaded into the kernel using
 .BR seccomp_load (3).
 .P
 The
+.BR SCMP_CMP (),
+.BR SCMP_CMP64 (),
+.BR SCMP_A{0-5} (),
+and
+.BR SCMP_A{0-5}_64 ()
+macros generate a scmp_arg_cmp structure for use with the above functions. The
+.BR SCMP_CMP ()
+and
+.BR SCMP_CMP64 ()
+macros allows the caller to specify an arbitrary argument along with the
+comparison operator, 64-bit mask, and 64-bit datum values where the
+.BR SCMP_A{0-5} ()
+and
+.BR SCMP_A{0-5}_64 ()
+macros are specific to a certain argument.
+.P
+The
+.BR SCMP_CMP32 ()
+and
+.BR SCMP_A{0-5}_32 ()
+macros are similar to the variants above, but they take 32-bit mask and 32-bit
+datum values.
+.P
+It is recommended that whenever possible developers avoid using the
 .BR SCMP_CMP ()
 and
 .BR SCMP_A{0-5} ()
-macros generate a scmp_arg_cmp structure for use with the above functions. The
-.BR SCMP_CMP ()
-macro allows the caller to specify an arbitrary argument along with the
-comparison operator, mask, and datum values where the
-.BR SCMP_A{0-5} ()
-macros are specific to a certain argument.  See the EXAMPLES section below.
+macros and use the variants which are explicitly 32 or 64-bit.  This should
+help eliminate problems caused by an unwanted sign extension of negative datum
+values.
 .P
 While it is possible to specify the
 .I syscall
@@ -89,6 +128,14 @@ values, in order to ensure proper operation across multiple architectures it
 is highly recommended to use the
 .BR SCMP_SYS ()
 macro instead.  See the EXAMPLES section below.
+.P
+Starting with Linux v4.8, there may be a need to create a rule with a syscall
+value of -1 to allow tracing programs to skip a syscall invocation; in order
+to create a rule with a -1 syscall value it is necessary to first set the
+.B SCMP_FLTATR_API_TSKIP
+attribute.  See
+.BR seccomp_attr_set (3)
+for more information.
 .P
 The filter context
 .I ctx
@@ -100,18 +147,21 @@ Valid
 values are as follows:
 .TP
 .B SCMP_ACT_KILL
-The thread will be killed by the kernel when it calls a syscall that does not
-match any of the configured seccomp filter rules.
+The thread will be killed by the kernel when it calls a syscall that matches
+the filter rule.
+.TP
+.B SCMP_ACT_KILL_PROCESS
+The process will be killed by the kernel when it calls a syscall that matches
+the filter rule.
 .TP
 .B SCMP_ACT_TRAP
-The thread will throw a SIGSYS signal when it calls a syscall that does not
-match any of the configured seccomp filter rules.
+The thread will throw a SIGSYS signal when it calls a syscall that matches the
+filter rule.
 .TP
 .B SCMP_ACT_ERRNO(uint16_t errno)
 The thread will receive a return value of
 .I errno
-when it calls a syscall that does not match any of the configured seccomp filter
-rules.
+when it calls a syscall that matches the filter rule.
 .TP
 .B SCMP_ACT_TRACE(uint16_t msg_num)
 If the thread is being traced and the tracing process specified the
@@ -126,9 +176,13 @@ can be retrieved using the
 .B PTRACE_GETEVENTMSG
 option.
 .TP
+.B SCMP_ACT_LOG
+The seccomp filter will have no effect on the thread calling the syscall if it
+matches the filter rule but the syscall will be logged.
+.TP
 .B SCMP_ACT_ALLOW
 The seccomp filter will have no effect on the thread calling the syscall if it
-does not match any of the configured seccomp filter rules.
+matches the filter rule.
 .P
 Valid comparison
 .I op
@@ -219,6 +273,7 @@ functions return zero on success, negative errno values on failure.
 #include <seccomp.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <stddef.h>
 
 #define BUF_SIZE	256
 
@@ -241,6 +296,14 @@ int main(int argc, char *argv[])
 	/* ... */
 
 	rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(close), 0);
+	if (rc < 0)
+		goto out;
+
+	rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit_group), 0);
+	if (rc < 0)
+		goto out;
+
+	rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit), 0);
 	if (rc < 0)
 		goto out;
 
@@ -291,5 +354,7 @@ Paul Moore <paul@paul-moore.com>
 .\" //////////////////////////////////////////////////////////////////////////
 .SH SEE ALSO
 .\" //////////////////////////////////////////////////////////////////////////
+.BR seccomp_syscall_resolve_name_rewrite (3),
 .BR seccomp_syscall_priority (3),
-.BR seccomp_load (3)
+.BR seccomp_load (3),
+.BR seccomp_attr_set (3)

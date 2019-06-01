@@ -30,11 +30,15 @@ import util
 from seccomp import *
 
 def test(args):
+    set_api(3)
+
     f = SyscallFilter(KILL)
     f.add_rule(ALLOW, "read")
+    f.add_rule(LOG, "rt_sigreturn")
     f.add_rule(ERRNO(errno.EPERM), "write")
     f.add_rule(TRAP, "close")
     f.add_rule(TRACE(1234), "open")
+    f.add_rule(KILL_PROCESS, "stat")
     return f
 
 args = util.get_opt()

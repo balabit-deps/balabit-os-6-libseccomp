@@ -1,7 +1,7 @@
 /**
  * Enhanced Seccomp Architecture/Machine Specific Code
  *
- * Copyright (c) 2012 Red Hat <pmoore@redhat.com>
+ * Copyright (c) 2012,2018 Red Hat <pmoore@redhat.com>
  * Author: Paul Moore <paul@paul-moore.com>
  */
 
@@ -38,14 +38,13 @@
 #include "arch-mips.h"
 #include "arch-mips64.h"
 #include "arch-mips64n32.h"
+#include "arch-parisc.h"
 #include "arch-ppc.h"
 #include "arch-ppc64.h"
 #include "arch-s390.h"
 #include "arch-s390x.h"
 #include "db.h"
 #include "system.h"
-
-#define default_arg_count_max		6
 
 #define default_arg_offset(x)		(offsetof(struct seccomp_data, args[x]))
 
@@ -79,6 +78,10 @@ const struct arch_def *arch_def_native = &arch_def_mips64n32;
 #elif __MIPSEL__
 const struct arch_def *arch_def_native = &arch_def_mipsel64n32;
 #endif /* _MIPS_SIM_NABI32 */
+#elif __hppa64__ /* hppa64 must be checked before hppa */
+const struct arch_def *arch_def_native = &arch_def_parisc64;
+#elif __hppa__
+const struct arch_def *arch_def_native = &arch_def_parisc;
 #elif __PPC64__
 #ifdef __BIG_ENDIAN__
 const struct arch_def *arch_def_native = &arch_def_ppc64;
@@ -139,6 +142,10 @@ const struct arch_def *arch_def_lookup(uint32_t token)
 		return &arch_def_mips64n32;
 	case SCMP_ARCH_MIPSEL64N32:
 		return &arch_def_mipsel64n32;
+	case SCMP_ARCH_PARISC:
+		return &arch_def_parisc;
+	case SCMP_ARCH_PARISC64:
+		return &arch_def_parisc64;
 	case SCMP_ARCH_PPC:
 		return &arch_def_ppc;
 	case SCMP_ARCH_PPC64:
@@ -185,6 +192,10 @@ const struct arch_def *arch_def_lookup_name(const char *arch_name)
 		return &arch_def_mips64n32;
 	else if (strcmp(arch_name, "mipsel64n32") == 0)
 		return &arch_def_mipsel64n32;
+	else if (strcmp(arch_name, "parisc64") == 0)
+		return &arch_def_parisc64;
+	else if (strcmp(arch_name, "parisc") == 0)
+		return &arch_def_parisc;
 	else if (strcmp(arch_name, "ppc") == 0)
 		return &arch_def_ppc;
 	else if (strcmp(arch_name, "ppc64") == 0)
@@ -197,19 +208,6 @@ const struct arch_def *arch_def_lookup_name(const char *arch_name)
 		return &arch_def_s390x;
 
 	return NULL;
-}
-
-/**
- * Determine the maximum number of syscall arguments
- * @param arch the architecture definition
- *
- * Determine the maximum number of syscall arguments for the given architecture.
- * Returns the number of arguments on success, negative values on failure.
- *
- */
-int arch_arg_count_max(const struct arch_def *arch)
-{
-	return (arch_valid(arch->token) == 0 ? default_arg_count_max : -EDOM);
 }
 
 /**
@@ -332,6 +330,10 @@ int arch_syscall_translate(const struct arch_def *arch, int *syscall)
 	int sc_num;
 	const char *sc_name;
 
+	/* special handling for syscall -1 */
+	if (*syscall == -1)
+		return 0;
+
 	if (arch->token != arch_def_native->token) {
 		sc_name = arch_syscall_resolve_num(arch_def_native, *syscall);
 		if (sc_name == NULL)
@@ -362,10 +364,10 @@ int arch_syscall_rewrite(const struct arch_def *arch, int *syscall)
 {
 	int sys = *syscall;
 
-	if (sys >= 0) {
+	if (sys >= -1) {
 		/* we shouldn't be here - no rewrite needed */
 		return 0;
-	} else if (sys < 0 && sys > -100) {
+	} else if (sys < -1 && sys > -100) {
 		/* reserved values */
 		return -EINVAL;
 	} else if (sys <= -100 && sys > -10000) {
@@ -382,13 +384,8 @@ int arch_syscall_rewrite(const struct arch_def *arch, int *syscall)
 
 /**
  * Add a new rule to the specified filter
- * @param col the filter collection
  * @param db the seccomp filter db
- * @param strict the strict flag
- * @param action the filter action
- * @param syscall the syscall number
- * @param chain_len the number of argument filters in the argument filter chain
- * @param chain the argument filter chain
+ * @param strict the rule
  *
  * This function adds a new argument/comparison/value to the seccomp filter for
  * a syscall; multiple arguments can be specified and they will be chained
@@ -398,76 +395,44 @@ int arch_syscall_rewrite(const struct arch_def *arch, int *syscall)
  * function needs to adjust the rule due to architecture specifics.  Returns
  * zero on success, negative values on failure.
  *
+ * It is important to note that in the case of failure the db may be corrupted,
+ * the caller must use the transaction mechanism if the db integrity is
+ * important.
+ *
  */
-int arch_filter_rule_add(struct db_filter_col *col, struct db_filter *db,
-			 bool strict, uint32_t action, int syscall,
-			 unsigned int chain_len, struct db_api_arg *chain)
+int arch_filter_rule_add(struct db_filter *db,
+			 const struct db_api_rule_list *rule)
 {
-	int rc;
-	size_t chain_size = sizeof(*chain) * chain_len;
-	struct db_api_rule_list *rule, *rule_tail;
+	int rc = 0;
+	int syscall;
+	struct db_api_rule_list *rule_dup = NULL;
 
-	/* ensure we aren't using any reserved syscall values */
-	if (syscall < 0 && syscall > -100)
-		return -EINVAL;
+	/* create our own rule that we can munge */
+	rule_dup = db_rule_dup(rule);
+	if (rule_dup == NULL)
+		return -ENOMEM;
 
 	/* translate the syscall */
-	rc = arch_syscall_translate(db->arch, &syscall);
+	rc = arch_syscall_translate(db->arch, &rule_dup->syscall);
 	if (rc < 0)
-		return rc;
-
-	/* copy of the chain for each filter in the collection */
-	rule = malloc(sizeof(*rule));
-	if (rule == NULL)
-		return -ENOMEM;
-	rule->args = malloc(chain_size);
-	if (rule->args == NULL) {
-		free(rule);
-		return -ENOMEM;
-	}
-	rule->action = action;
-	rule->syscall = syscall;
-	rule->args_cnt = chain_len;
-	memcpy(rule->args, chain, chain_size);
-	rule->prev = NULL;
-	rule->next = NULL;
+		goto rule_add_return;
+	syscall = rule_dup->syscall;
 
 	/* add the new rule to the existing filter */
-	if (db->arch->rule_add == NULL) {
-		/* negative syscalls require a db->arch->rule_add() function */
-		if (syscall < 0 && strict) {
+	if (syscall == -1 || db->arch->rule_add == NULL) {
+		/* syscalls < -1 require a db->arch->rule_add() function */
+		if (syscall < -1 && rule_dup->strict) {
 			rc = -EDOM;
-			goto rule_add_failure;
+			goto rule_add_return;
 		}
-		rc = db_rule_add(db, rule);
+		rc = db_rule_add(db, rule_dup);
 	} else
-		rc = (db->arch->rule_add)(col, db, strict, rule);
-	if (rc == 0) {
-		/* insert the chain to the end of the filter's rule list */
-		rule_tail = rule;
-		while (rule_tail->next)
-			rule_tail = rule_tail->next;
-		if (db->rules != NULL) {
-			rule->prev = db->rules->prev;
-			rule_tail->next = db->rules;
-			db->rules->prev->next = rule;
-			db->rules->prev = rule_tail;
-		} else {
-			rule->prev = rule_tail;
-			rule_tail->next = rule;
-			db->rules = rule;
-		}
-	} else
-		goto rule_add_failure;
+		rc = (db->arch->rule_add)(db, rule_dup);
 
-	return 0;
-
-rule_add_failure:
-	do {
-		rule_tail = rule;
-		rule = rule->next;
-		free(rule_tail->args);
-		free(rule_tail);
-	} while (rule);
+rule_add_return:
+	/* NOTE: another reminder that we don't do any db error recovery here,
+	 * use the transaction mechanism as previously mentioned */
+	if (rule_dup != NULL)
+		free(rule_dup);
 	return rc;
 }

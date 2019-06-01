@@ -26,7 +26,7 @@
 #include "arch.h"
 #include "arch-x86_64.h"
 
-/* NOTE: based on Linux 4.5-rc4 */
+/* NOTE: based on Linux 4.15-rc7 */
 const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "_llseek", __PNR__llseek },
 	{ "_newselect", __PNR__newselect },
@@ -122,6 +122,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "get_mempolicy", 239 },
 	{ "get_robust_list", 274 },
 	{ "get_thread_area", 211 },
+	{ "get_tls", __PNR_get_tls },
 	{ "getcpu", 309 },
 	{ "getcwd", 79 },
 	{ "getdents", 78 },
@@ -167,6 +168,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "io_cancel", 210 },
 	{ "io_destroy", 207 },
 	{ "io_getevents", 208 },
+	{ "io_pgetevents", 333 },
 	{ "io_setup", 206 },
 	{ "io_submit", 209 },
 	{ "ioctl", 16 },
@@ -254,11 +256,15 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "pipe", 22 },
 	{ "pipe2", 293 },
 	{ "pivot_root", 155 },
+	{ "pkey_alloc", 330 },
+	{ "pkey_free", 331 },
+	{ "pkey_mprotect", 329 },
 	{ "poll", 7 },
 	{ "ppoll", 271 },
 	{ "prctl", 157 },
 	{ "pread64", 17 },
 	{ "preadv", 295 },
+	{ "preadv2", 327 },
 	{ "prlimit64", 302 },
 	{ "process_vm_readv", 310 },
 	{ "process_vm_writev", 311 },
@@ -269,6 +275,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "putpmsg", 182 },
 	{ "pwrite64", 18 },
 	{ "pwritev", 296 },
+	{ "pwritev2", 328 },
 	{ "query_module", 178 },
 	{ "quotactl", 179 },
 	{ "read", 0 },
@@ -290,6 +297,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "request_key", 249 },
 	{ "restart_syscall", 219 },
 	{ "rmdir", 84 },
+	{ "rseq", 334 },
 	{ "rt_sigaction", 13 },
 	{ "rt_sigpending", 127 },
 	{ "rt_sigprocmask", 14 },
@@ -299,9 +307,11 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "rt_sigtimedwait", 128 },
 	{ "rt_tgsigqueueinfo", 297 },
 	{ "rtas", __PNR_rtas },
+	{ "s390_guarded_storage", __PNR_s390_guarded_storage },
 	{ "s390_pci_mmio_read", __PNR_s390_pci_mmio_read },
 	{ "s390_pci_mmio_write", __PNR_s390_pci_mmio_write },
 	{ "s390_runtime_instr", __PNR_s390_runtime_instr },
+	{ "s390_sthyi", __PNR_s390_sthyi },
 	{ "sched_get_priority_max", 146 },
 	{ "sched_get_priority_min", 147 },
 	{ "sched_getaffinity", 204 },
@@ -387,6 +397,7 @@ const struct arch_syscall_def x86_64_syscall_table[] = { \
 	{ "stat64", __PNR_stat64 },
 	{ "statfs", 137 },
 	{ "statfs64", __PNR_statfs64 },
+	{ "statx", 332 },
 	{ "stime", __PNR_stime },
 	{ "stty", __PNR_stty },
 	{ "subpage_prot", __PNR_subpage_prot },
@@ -501,16 +512,16 @@ const char *x86_64_syscall_resolve_num(int num)
 }
 
 /**
- * Iterate through the syscall table and return the syscall name
+ * Iterate through the syscall table and return the syscall mapping
  * @param spot the offset into the syscall table
  *
- * Return the syscall name at position @spot or NULL on failure.  This function
- * should only ever be used internally by libseccomp.
+ * Return the syscall mapping at position @spot or NULL on failure.  This
+ * function should only ever be used internally by libseccomp.
  *
  */
-const char *x86_64_syscall_iterate_name(unsigned int spot)
+const struct arch_syscall_def *x86_64_syscall_iterate(unsigned int spot)
 {
 	/* XXX - no safety checks here */
-	return x86_64_syscall_table[spot].name;
+	return &x86_64_syscall_table[spot];
 }
 
