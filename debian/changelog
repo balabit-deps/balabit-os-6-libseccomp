@@ -1,3 +1,22 @@
+libseccomp (2.4.3-1ubuntu3.16.04.2) xenial; urgency=medium
+
+  * Updated to new upstream 2.4.3 version for updated syscalls support
+    and test-suite robustness
+    - d/p/add-5.4-local-syscall-headers.patch: Add local copy of the
+      architecture specific header files which specify system call numbers
+      from linux-libc-dev in focal to ensure unit tests pass on older
+      releases where the linux-libc-dev package does not have the required
+      system calls defined and use these during compilation of unit tests
+    - d/p/db-properly-reset-attribute-state.patch: Drop this patch since
+      is now upstream  
+    - LP: #1876055
+  * Add missing aarch64 system calls
+    - d/p/fix-aarch64-syscalls.patch
+    - LP: #1877633
+  * Re-enable build failure on unit test failure
+
+ -- Alex Murray <alex.murray@canonical.com>  Tue, 02 Jun 2020 14:16:21 +0930
+
 libseccomp (2.4.1-0ubuntu0.16.04.2) xenial-security; urgency=medium
 
   [ Marc Deslauriers ]

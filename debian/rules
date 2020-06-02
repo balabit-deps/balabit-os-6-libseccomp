@@ -29,9 +29,3 @@ override_dh_install:
 		"usr/lib/$(DEB_HOST_MULTIARCH)/libseccomp.so.*" \
 		lib/$(DEB_HOST_MULTIARCH)
 	dh_install --remaining-packages --list-missing
-
-override_dh_auto_test:
-ifeq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
-	make check 2>&1 | tee regression.out && \
-	  grep -q "^ tests failed: 0" regression.out || true
-endif

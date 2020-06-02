@@ -139,17 +139,9 @@ util_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
 am_scmp_api_level_OBJECTS = scmp_api_level.$(OBJEXT)
 scmp_api_level_OBJECTS = $(am_scmp_api_level_OBJECTS)
 scmp_api_level_DEPENDENCIES = ../src/libseccomp.la
-scmp_api_level_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(AM_CFLAGS) $(CFLAGS) $(scmp_api_level_LDFLAGS) $(LDFLAGS) -o \
-	$@
 scmp_arch_detect_SOURCES = scmp_arch_detect.c
 scmp_arch_detect_OBJECTS = scmp_arch_detect.$(OBJEXT)
 scmp_arch_detect_DEPENDENCIES = ../src/libseccomp.la
-scmp_arch_detect_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(AM_CFLAGS) $(CFLAGS) $(scmp_arch_detect_LDFLAGS) $(LDFLAGS) \
-	-o $@
 am_scmp_bpf_disasm_OBJECTS = scmp_bpf_disasm.$(OBJEXT)
 scmp_bpf_disasm_OBJECTS = $(am_scmp_bpf_disasm_OBJECTS)
 scmp_bpf_disasm_DEPENDENCIES = util.la
@@ -159,10 +151,6 @@ scmp_bpf_sim_DEPENDENCIES = util.la
 scmp_sys_resolver_SOURCES = scmp_sys_resolver.c
 scmp_sys_resolver_OBJECTS = scmp_sys_resolver.$(OBJEXT)
 scmp_sys_resolver_DEPENDENCIES = ../src/libseccomp.la
-scmp_sys_resolver_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(AM_CFLAGS) $(CFLAGS) $(scmp_sys_resolver_LDFLAGS) $(LDFLAGS) \
-	-o $@
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -237,7 +225,7 @@ DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_CFLAGS = @AM_CFLAGS@
-AM_CPPFLAGS = -I${top_builddir}/include
+AM_CPPFLAGS = @AM_CPPFLAGS@
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
 AM_LDFLAGS = @AM_LDFLAGS@
 AR = @AR@
@@ -383,13 +371,10 @@ scmp_bpf_disasm_SOURCES = scmp_bpf_disasm.c bpf.h util.h
 scmp_bpf_sim_SOURCES = scmp_bpf_sim.c bpf.h util.h
 scmp_api_level_SOURCES = scmp_api_level.c
 scmp_sys_resolver_LDADD = ../src/libseccomp.la
-scmp_sys_resolver_LDFLAGS = -static
 scmp_arch_detect_LDADD = ../src/libseccomp.la
-scmp_arch_detect_LDFLAGS = -static
 scmp_bpf_disasm_LDADD = util.la
 scmp_bpf_sim_LDADD = util.la
 scmp_api_level_LDADD = ../src/libseccomp.la
-scmp_api_level_LDFLAGS = -static
 all: all-am
 
 .SUFFIXES:
@@ -498,11 +483,11 @@ util.la: $(util_la_OBJECTS) $(util_la_DEPENDENCIES) $(EXTRA_util_la_DEPENDENCIES
 
 scmp_api_level$(EXEEXT): $(scmp_api_level_OBJECTS) $(scmp_api_level_DEPENDENCIES) $(EXTRA_scmp_api_level_DEPENDENCIES) 
 	@rm -f scmp_api_level$(EXEEXT)
-	$(AM_V_CCLD)$(scmp_api_level_LINK) $(scmp_api_level_OBJECTS) $(scmp_api_level_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(LINK) $(scmp_api_level_OBJECTS) $(scmp_api_level_LDADD) $(LIBS)
 
 scmp_arch_detect$(EXEEXT): $(scmp_arch_detect_OBJECTS) $(scmp_arch_detect_DEPENDENCIES) $(EXTRA_scmp_arch_detect_DEPENDENCIES) 
 	@rm -f scmp_arch_detect$(EXEEXT)
-	$(AM_V_CCLD)$(scmp_arch_detect_LINK) $(scmp_arch_detect_OBJECTS) $(scmp_arch_detect_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(LINK) $(scmp_arch_detect_OBJECTS) $(scmp_arch_detect_LDADD) $(LIBS)
 
 scmp_bpf_disasm$(EXEEXT): $(scmp_bpf_disasm_OBJECTS) $(scmp_bpf_disasm_DEPENDENCIES) $(EXTRA_scmp_bpf_disasm_DEPENDENCIES) 
 	@rm -f scmp_bpf_disasm$(EXEEXT)
@@ -514,7 +499,7 @@ scmp_bpf_sim$(EXEEXT): $(scmp_bpf_sim_OBJECTS) $(scmp_bpf_sim_DEPENDENCIES) $(EX
 
 scmp_sys_resolver$(EXEEXT): $(scmp_sys_resolver_OBJECTS) $(scmp_sys_resolver_DEPENDENCIES) $(EXTRA_scmp_sys_resolver_DEPENDENCIES) 
 	@rm -f scmp_sys_resolver$(EXEEXT)
-	$(AM_V_CCLD)$(scmp_sys_resolver_LINK) $(scmp_sys_resolver_OBJECTS) $(scmp_sys_resolver_LDADD) $(LIBS)
+	$(AM_V_CCLD)$(LINK) $(scmp_sys_resolver_OBJECTS) $(scmp_sys_resolver_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)

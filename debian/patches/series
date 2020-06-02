@@ -1,1 +1,2 @@
-db-properly-reset-attribute-state.patch
+fix-aarch64-syscalls.patch
+add-5.4-local-syscall-headers.patch

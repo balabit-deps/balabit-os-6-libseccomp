@@ -289,6 +289,8 @@ int main(int argc, char *argv[])
 				exit_fault(EINVAL);
 			break;
 		case 'f':
+			if (opt_file)
+				exit_fault(EINVAL);
 			opt_file = strdup(optarg);
 			if (opt_file == NULL)
 				exit_fault(ENOMEM);
@@ -340,6 +342,8 @@ int main(int argc, char *argv[])
 		exit_fault(ENOMEM);
 
 	/* load the bpf program */
+	if (opt_file == NULL)
+		exit_usage(argv[0]);
 	file = fopen(opt_file, "r");
 	if (file == NULL)
 		exit_fault(errno);
