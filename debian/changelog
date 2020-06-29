@@ -1,3 +1,12 @@
+libseccomp (2.4.3-1ubuntu3.16.04.3) xenial; urgency=medium
+
+  * d/p/db-consolidate-some-of-the-code-which-adds-rules.patch
+  * d/p/db-add-shadow-transactions.patch (LP: #1861177)
+    Backport upstream patches to address performance regression introduced
+    in libseccomp 2.4.
+
+ -- Ioanna Alifieraki <ioanna-maria.alifieraki@canonical.com>  Mon, 29 Jun 2020 13:57:55 +0100
+
 libseccomp (2.4.3-1ubuntu3.16.04.2) xenial; urgency=medium
 
   * Updated to new upstream 2.4.3 version for updated syscalls support

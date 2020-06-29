@@ -1,2 +1,4 @@
 fix-aarch64-syscalls.patch
 add-5.4-local-syscall-headers.patch
+db-consolidate-some-of-the-code-which-adds-rules.patch
+db-add-shadow-transactions.patch
