@@ -135,7 +135,7 @@ check_PROGRAMS = miniseq$(EXEEXT) 01-sim-allow$(EXEEXT) \
 	44-live-a2_order$(EXEEXT) 45-sim-chain_code_coverage$(EXEEXT) \
 	46-sim-kill_process$(EXEEXT) 47-live-kill_process$(EXEEXT) \
 	48-sim-32b_args$(EXEEXT) 49-sim-64b_comparisons$(EXEEXT) \
-	50-sim-hash_collision$(EXEEXT)
+	50-sim-hash_collision$(EXEEXT) 52-basic-load$(EXEEXT)
 EXTRA_PROGRAMS = 00-test$(EXEEXT)
 subdir = tests
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -423,6 +423,11 @@ am__DEPENDENCIES_1 =
 50_sim_hash_collision_LDADD = $(LDADD)
 50_sim_hash_collision_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
+52_basic_load_SOURCES = 52-basic-load.c
+52_basic_load_OBJECTS = 52-basic-load.$(OBJEXT)
+52_basic_load_LDADD = $(LDADD)
+52_basic_load_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
 miniseq_SOURCES = miniseq.c
 miniseq_OBJECTS = miniseq.$(OBJEXT)
 miniseq_DEPENDENCIES =
@@ -486,7 +491,8 @@ am__depfiles_remade = ./$(DEPDIR)/00-test.Po \
 	./$(DEPDIR)/47-live-kill_process.Po \
 	./$(DEPDIR)/48-sim-32b_args.Po \
 	./$(DEPDIR)/49-sim-64b_comparisons.Po \
-	./$(DEPDIR)/50-sim-hash_collision.Po ./$(DEPDIR)/miniseq.Po \
+	./$(DEPDIR)/50-sim-hash_collision.Po \
+	./$(DEPDIR)/52-basic-load.Po ./$(DEPDIR)/miniseq.Po \
 	./$(DEPDIR)/util.Plo
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
@@ -530,7 +536,8 @@ SOURCES = $(util_la_SOURCES) $(nodist_00_test_SOURCES) 01-sim-allow.c \
 	43-sim-a2_order.c 44-live-a2_order.c \
 	45-sim-chain_code_coverage.c 46-sim-kill_process.c \
 	47-live-kill_process.c 48-sim-32b_args.c \
-	49-sim-64b_comparisons.c 50-sim-hash_collision.c miniseq.c
+	49-sim-64b_comparisons.c 50-sim-hash_collision.c \
+	52-basic-load.c miniseq.c
 DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	03-sim-basic_chains.c 04-sim-multilevel_chains.c \
 	05-sim-long_jumps.c 06-sim-actions.c 07-sim-db_bug_looping.c \
@@ -553,7 +560,8 @@ DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	43-sim-a2_order.c 44-live-a2_order.c \
 	45-sim-chain_code_coverage.c 46-sim-kill_process.c \
 	47-live-kill_process.c 48-sim-32b_args.c \
-	49-sim-64b_comparisons.c 50-sim-hash_collision.c miniseq.c
+	49-sim-64b_comparisons.c 50-sim-hash_collision.c \
+	52-basic-load.c miniseq.c
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -803,7 +811,8 @@ EXTRA_DIST_TESTPYTHON = \
 	47-live-kill_process.py \
 	48-sim-32b_args.py \
 	49-sim-64b_comparisons.py \
-	50-sim-hash_collision.py
+	50-sim-hash_collision.py \
+	52-basic-load.py
 
 EXTRA_DIST_TESTCFGS = \
 	01-sim-allow.tests \
@@ -855,7 +864,8 @@ EXTRA_DIST_TESTCFGS = \
 	47-live-kill_process.tests \
 	48-sim-32b_args.tests \
 	49-sim-64b_comparisons.tests \
-	50-sim-hash_collision.tests
+	50-sim-hash_collision.tests \
+	52-basic-load.tests
 
 EXTRA_DIST_TESTSCRIPTS = \
 	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc
@@ -1131,6 +1141,10 @@ util.la: $(util_la_OBJECTS) $(util_la_DEPENDENCIES) $(EXTRA_util_la_DEPENDENCIES
 	@rm -f 50-sim-hash_collision$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(50_sim_hash_collision_OBJECTS) $(50_sim_hash_collision_LDADD) $(LIBS)
 
+52-basic-load$(EXEEXT): $(52_basic_load_OBJECTS) $(52_basic_load_DEPENDENCIES) $(EXTRA_52_basic_load_DEPENDENCIES) 
+	@rm -f 52-basic-load$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(52_basic_load_OBJECTS) $(52_basic_load_LDADD) $(LIBS)
+
 miniseq$(EXEEXT): $(miniseq_OBJECTS) $(miniseq_DEPENDENCIES) $(EXTRA_miniseq_DEPENDENCIES) 
 	@rm -f miniseq$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(miniseq_OBJECTS) $(miniseq_LDADD) $(LIBS)
@@ -1192,6 +1206,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/48-sim-32b_args.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/49-sim-64b_comparisons.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/50-sim-hash_collision.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/52-basic-load.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/miniseq.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/util.Plo@am__quote@ # am--include-marker
 
@@ -1502,6 +1517,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/48-sim-32b_args.Po
 	-rm -f ./$(DEPDIR)/49-sim-64b_comparisons.Po
 	-rm -f ./$(DEPDIR)/50-sim-hash_collision.Po
+	-rm -f ./$(DEPDIR)/52-basic-load.Po
 	-rm -f ./$(DEPDIR)/miniseq.Po
 	-rm -f ./$(DEPDIR)/util.Plo
 	-rm -f Makefile
@@ -1600,6 +1616,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/48-sim-32b_args.Po
 	-rm -f ./$(DEPDIR)/49-sim-64b_comparisons.Po
 	-rm -f ./$(DEPDIR)/50-sim-hash_collision.Po
+	-rm -f ./$(DEPDIR)/52-basic-load.Po
 	-rm -f ./$(DEPDIR)/miniseq.Po
 	-rm -f ./$(DEPDIR)/util.Plo
 	-rm -f Makefile

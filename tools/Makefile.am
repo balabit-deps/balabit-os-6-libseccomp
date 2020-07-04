@@ -16,8 +16,6 @@
 # along with this library; if not, see <http://www.gnu.org/licenses>.
 #
 
-AM_CPPFLAGS = -I${top_builddir}/include
-
 noinst_LTLIBRARIES = util.la
 util_la_SOURCES = util.c util.h bpf.h
 util_la_LDFLAGS = -module
@@ -37,10 +35,7 @@ scmp_bpf_sim_SOURCES = scmp_bpf_sim.c bpf.h util.h
 scmp_api_level_SOURCES = scmp_api_level.c
 
 scmp_sys_resolver_LDADD = ../src/libseccomp.la
-scmp_sys_resolver_LDFLAGS = -static
 scmp_arch_detect_LDADD = ../src/libseccomp.la
-scmp_arch_detect_LDFLAGS = -static
 scmp_bpf_disasm_LDADD = util.la
 scmp_bpf_sim_LDADD = util.la
 scmp_api_level_LDADD = ../src/libseccomp.la
-scmp_api_level_LDFLAGS = -static
