@@ -116,6 +116,12 @@ struct db_filter_attr {
 	uint32_t api_tskip;
 	/* SECCOMP_FILTER_FLAG_LOG related attributes */
 	uint32_t log_enable;
+	/* SPEC_ALLOW related attributes */
+	uint32_t spec_allow;
+	/* SCMP_FLTATR_CTL_OPTIMIZE related attributes */
+	uint32_t optimize;
+	/* return the raw system return codes */
+	uint32_t api_sysrawrc;
 };
 
 struct db_filter {
@@ -124,6 +130,7 @@ struct db_filter {
 
 	/* syscall filters, kept as a sorted single-linked list */
 	struct db_sys_list *syscalls;
+	unsigned int syscall_cnt;
 
 	/* list of rules used to build the filters, kept in order */
 	struct db_api_rule_list *rules;
@@ -133,6 +140,7 @@ struct db_filter_snap {
 	/* individual filters */
 	struct db_filter **filters;
 	unsigned int filter_cnt;
+	bool shadow;
 
 	struct db_filter_snap *next;
 };
@@ -151,6 +159,9 @@ struct db_filter_col {
 
 	/* transaction snapshots */
 	struct db_filter_snap *snapshots;
+
+	/* userspace notification */
+	bool notify_used;
 };
 
 /**
@@ -165,8 +176,6 @@ struct db_filter_col {
 #define db_list_foreach(iter,list) \
 	for (iter = (list); iter != NULL; iter = iter->next)
 
-int db_action_valid(uint32_t action);
-
 struct db_api_rule_list *db_rule_dup(const struct db_api_rule_list *src);
 
 struct db_filter_col *db_col_init(uint32_t def_action);
@@ -175,12 +184,16 @@ void db_col_release(struct db_filter_col *col);
 
 int db_col_valid(struct db_filter_col *col);
 
+int db_col_action_valid(const struct db_filter_col *col, uint32_t action);
+
 int db_col_merge(struct db_filter_col *col_dst, struct db_filter_col *col_src);
 
 int db_col_arch_exist(struct db_filter_col *col, uint32_t arch_token);
 
 int db_col_attr_get(const struct db_filter_col *col,
 		    enum scmp_filter_attr attr, uint32_t *value);
+uint32_t db_col_attr_read(const struct db_filter_col *col,
+			  enum scmp_filter_attr attr);
 int db_col_attr_set(struct db_filter_col *col,
 		    enum scmp_filter_attr attr, uint32_t value);
 

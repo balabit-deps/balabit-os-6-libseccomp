@@ -1,4 +1,4 @@
-.TH "seccomp_load" 3 "25 July 2012" "paul@paul-moore.com" "libseccomp Documentation"
+.TH "seccomp_load" 3 "30 May 2020" "paul@paul-moore.com" "libseccomp Documentation"
 .\" //////////////////////////////////////////////////////////////////////////
 .SH NAME
 .\" //////////////////////////////////////////////////////////////////////////
@@ -23,10 +23,40 @@ Loads the seccomp filter provided by
 .I ctx
 into the kernel; if the function
 succeeds the new seccomp filter will be active when the function returns.
+.P
+As it is possible to have multiple stacked seccomp filters for a given task
+(defined as either a process or a thread), it is important to remember that
+each of the filters loaded for a given task are executed when a syscall is
+made and the "strictest" rule is the rule that is applied.  In the case of
+seccomp, "strictest" is defined as the action with the lowest value (e.g.
+.I SCMP_ACT_KILL
+is "stricter" than
+.I SCMP_ACT_ALLOW
+).
 .\" //////////////////////////////////////////////////////////////////////////
 .SH RETURN VALUE
 .\" //////////////////////////////////////////////////////////////////////////
-Returns zero on success, negative errno values on failure.
+Returns zero on success or one of the following error codes on failure:
+.TP
+.B -ECANCELED
+There was a system failure beyond the control of the library.
+.TP
+.B -EFAULT
+Internal libseccomp failure.
+.TP
+.B -EINVAL
+Invalid input, either the context or architecture token is invalid.
+.TP
+.B -ENOMEM
+The library was unable to allocate enough memory.
+.TP
+.B -ESRCH
+Unable to load the filter due to thread issues.
+.P
+If the \fISCMP_FLTATR_API_SYSRAWRC\fP filter attribute is non-zero then
+additional error codes may be returned to the caller; these additional error
+codes are the negative \fIerrno\fP values returned by the system.  Unfortunately
+libseccomp can make no guarantees about these return values.
 .\" //////////////////////////////////////////////////////////////////////////
 .SH EXAMPLES
 .\" //////////////////////////////////////////////////////////////////////////

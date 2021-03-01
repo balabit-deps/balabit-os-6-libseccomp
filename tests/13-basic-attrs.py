@@ -29,7 +29,7 @@ import util
 from seccomp import *
 
 def test():
-    set_api(3)
+    set_api(5)
 
     f = SyscallFilter(ALLOW)
     if f.get_attr(Attr.ACT_DEFAULT) != ALLOW:
@@ -52,6 +52,15 @@ def test():
     f.set_attr(Attr.CTL_LOG, 1)
     if f.get_attr(Attr.CTL_LOG) != 1:
         raise RuntimeError("Failed getting Attr.CTL_LOG")
+    f.set_attr(Attr.CTL_SSB, 1)
+    if f.get_attr(Attr.CTL_SSB) != 1:
+        raise RuntimeError("Failed getting Attr.CTL_SSB")
+    f.set_attr(Attr.CTL_OPTIMIZE, 2)
+    if f.get_attr(Attr.CTL_OPTIMIZE) != 2:
+        raise RuntimeError("Failed getting Attr.CTL_OPTIMIZE")
+    f.set_attr(Attr.API_SYSRAWRC, 1)
+    if f.get_attr(Attr.API_SYSRAWRC) != 1:
+        raise RuntimeError("Failed getting Attr.API_SYSRAWRC")
 
 test()
 

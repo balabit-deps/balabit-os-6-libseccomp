@@ -1,10 +1,11 @@
-![Enhanced Seccomp Helper Library](https://github.com/seccomp/libseccomp-artwork/blob/master/logo/libseccomp-color_text.png)
+![Enhanced Seccomp Helper Library](https://github.com/seccomp/libseccomp-artwork/blob/main/logo/libseccomp-color_text.png)
 ===============================================================================
 https://github.com/seccomp/libseccomp
 
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/608/badge)](https://bestpractices.coreinfrastructure.org/projects/608)
 [![Build Status](https://img.shields.io/travis/seccomp/libseccomp/master.svg)](https://travis-ci.org/seccomp/libseccomp)
 [![Coverage Status](https://img.shields.io/coveralls/github/seccomp/libseccomp/master.svg)](https://coveralls.io/github/seccomp/libseccomp?branch=master)
+[![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/seccomp/libseccomp.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/seccomp/libseccomp/context:cpp)
 
 The libseccomp library provides an easy to use, platform independent, interface
 to the Linux Kernel's syscall filtering mechanism.  The libseccomp API is
@@ -52,6 +53,7 @@ The libseccomp library currently supports the architectures listed below:
 * 64-bit PowerPC little endian (ppc64le)
 * 32-bit s390 (s390)
 * 64-bit s390x (s390x)
+* 64-bit RISC-V (riscv64)
 
 ## Documentation
 
@@ -72,14 +74,16 @@ verify detached signatures using the following command:
 
 	# gpg --verify file.asc file
 
-At present, only the following keys are authorized to sign official libseccomp
-releases:
+At present, only the following keys, specified via the fingerprints below, are
+authorized to sign official libseccomp releases:
 
 	Paul Moore <paul@paul-moore.com>
 	7100 AADF AE6E 6E94 0D2E  0AD6 55E4 5A5A E8CA 7C8A
 
 	Tom Hromatka <tom.hromatka@oracle.com>
 	47A6 8FCE 37C7 D702 4FD6  5E11 356C E62C 2B52 4099
+
+More information on GnuPG can be found at their website, https://gnupg.org.
 
 ## Building and Installing the Library
 

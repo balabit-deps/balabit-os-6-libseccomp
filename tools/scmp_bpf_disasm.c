@@ -288,7 +288,7 @@ static void bpf_decode_args(const bpf_instr_raw *bpf, unsigned int line)
  * @param file the BPF program
  *
  * Read the BPF program and display the instructions.  Returns zero on success,
- * negative values on failure.
+ * non-zero values on failure.
  *
  */
 static int bpf_decode(FILE *file)
@@ -424,7 +424,7 @@ static void bpf_dot_decode_args(const bpf_instr_raw *bpf, unsigned int line)
  * @param file the BPF program
  *
  * Read the BPF program and display the instructions.  Returns zero on success,
- * negative values on failure.
+ * non-zero values on failure.
  *
  */
 static int bpf_dot_decode(FILE *file)
@@ -508,6 +508,8 @@ int main(int argc, char *argv[])
 				arch = AUDIT_ARCH_S390;
 			else if (strcmp(optarg, "s390x") == 0)
 				arch = AUDIT_ARCH_S390X;
+			else if (strcmp(optarg, "riscv64") == 0)
+				arch = AUDIT_ARCH_RISCV64;
 			else
 				exit_usage(argv[0]);
 			break;

@@ -27,13 +27,54 @@
 #include "arch.h"
 #include "arch-mips64n32.h"
 
+/* N32 ABI */
+#define __SCMP_NR_BASE			6000
+
+/**
+ * Resolve a syscall name to a number
+ * @param name the syscall name
+ *
+ * Resolve the given syscall name to the syscall number using the syscall table.
+ * Returns the syscall number on success, including negative pseudo syscall
+ * numbers; returns __NR_SCMP_ERROR on failure.
+ *
+ */
+int mips64n32_syscall_resolve_name_munge(const char *name)
+{
+	int sys;
+
+	/* NOTE: we don't want to modify the pseudo-syscall numbers */
+	sys = mips64n32_syscall_resolve_name(name);
+	if (sys == __NR_SCMP_ERROR || sys < 0)
+		return sys;
+
+	return sys + __SCMP_NR_BASE;
+}
+
+/**
+ * Resolve a syscall number to a name
+ * @param num the syscall number
+ *
+ * Resolve the given syscall number to the syscall name using the syscall table.
+ * Returns a pointer to the syscall name string on success, including pseudo
+ * syscall names; returns NULL on failure.
+ *
+ */
+const char *mips64n32_syscall_resolve_num_munge(int num)
+{
+	/* NOTE: we don't want to modify the pseudo-syscall numbers */
+	if (num >= __SCMP_NR_BASE)
+		num -= __SCMP_NR_BASE;
+	return mips64n32_syscall_resolve_num(num);
+}
+
 const struct arch_def arch_def_mips64n32 = {
 	.token = SCMP_ARCH_MIPS64N32,
 	.token_bpf = AUDIT_ARCH_MIPS64N32,
 	.size = ARCH_SIZE_32,
 	.endian = ARCH_ENDIAN_BIG,
-	.syscall_resolve_name = mips64n32_syscall_resolve_name,
-	.syscall_resolve_num = mips64n32_syscall_resolve_num,
+	.syscall_resolve_name = mips64n32_syscall_resolve_name_munge,
+	.syscall_resolve_num = mips64n32_syscall_resolve_num_munge,
 	.syscall_rewrite = NULL,
 	.rule_add = NULL,
 };
@@ -43,8 +84,8 @@ const struct arch_def arch_def_mipsel64n32 = {
 	.token_bpf = AUDIT_ARCH_MIPSEL64N32,
 	.size = ARCH_SIZE_32,
 	.endian = ARCH_ENDIAN_LITTLE,
-	.syscall_resolve_name = mips64n32_syscall_resolve_name,
-	.syscall_resolve_num = mips64n32_syscall_resolve_num,
+	.syscall_resolve_name = mips64n32_syscall_resolve_name_munge,
+	.syscall_resolve_num = mips64n32_syscall_resolve_num_munge,
 	.syscall_rewrite = NULL,
 	.rule_add = NULL,
 };

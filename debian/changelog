@@ -1,3 +1,22 @@
+libseccomp (2.5.1-1ubuntu1~16.04.1) xenial; urgency=medium
+
+  * Updated to new upstream 2.5.1 version for updated syscalls support
+    (LP: #1891810)
+   - Removed the following patches that are now included in the new version:
+     + d/p/fix-aarch64-syscalls.patch
+     + d/p/db-consolidate-some-of-the-code-which-adds-rules.patch
+     + d/p/db-add-shadow-transactions.patch
+   - Deleted the patch to add a local copy of architecture specific header
+     files from linux-libc-dev/focal as this is not needed anymore
+     + d/p/add-5.4-local-syscall-headers.patch
+   - debian/control: Added gperf to Build-Depends as this is now required
+     by upstream
+   - debian/libseccomp2.symbols: Added new symbols
+  * Add system call headers for powerpc required for backport to xenial
+    - d/p/add-5.8-powerpc-syscall-headers.patch
+
+ -- Alex Murray <alex.murray@canonical.com>  Mon, 01 Mar 2021 13:50:00 +1030
+
 libseccomp (2.4.3-1ubuntu3.16.04.3) xenial; urgency=medium
 
   * d/p/db-consolidate-some-of-the-code-which-adds-rules.patch

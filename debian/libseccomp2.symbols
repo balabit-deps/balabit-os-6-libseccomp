@@ -26,3 +26,9 @@ libseccomp.so.2 libseccomp2 #MINVER#
  seccomp_arch_resolve_name@Base 2.2.1
  seccomp_syscall_resolve_name_rewrite@Base 2.2.1
  seccomp_version@Base 2.3.0
+ seccomp_notify_alloc@Base 2.5.0
+ seccomp_notify_fd@Base 2.5.0
+ seccomp_notify_free@Base 2.5.0
+ seccomp_notify_id_valid@Base 2.5.0
+ seccomp_notify_receive@Base 2.5.0
+ seccomp_notify_respond@Base 2.5.0
