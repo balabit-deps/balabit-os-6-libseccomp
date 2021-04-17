@@ -1,4 +1,4 @@
-.TH "seccomp_rule_add" 3 "17 February 2019" "paul@paul-moore.com" "libseccomp Documentation"
+.TH "seccomp_rule_add" 3 "30 May 2020" "paul@paul-moore.com" "libseccomp Documentation"
 .\" //////////////////////////////////////////////////////////////////////////
 .SH NAME
 .\" //////////////////////////////////////////////////////////////////////////
@@ -87,6 +87,17 @@ do guarantee the same behavior regardless of the architecture.
 The newly added filter rule does not take effect until the entire filter is
 loaded into the kernel using
 .BR seccomp_load (3).
+When adding rules to a filter, it is important to consider the impact of
+previously loaded filters; see the
+.BR seccomp_load (3)
+documentation for more information.
+.P
+All of the filter rules supplied by the calling application are combined into
+a union, with additional logic to eliminate redundant syscall filters.  For
+example, if a rule is added which allows a given syscall with a specific set of
+argument values and later a rule is added which allows the same syscall
+regardless the argument values then the first, more specific rule, is
+effectively dropped from the filter by the second more generic rule.
 .P
 The
 .BR SCMP_CMP (),
@@ -120,6 +131,18 @@ macros and use the variants which are explicitly 32 or 64-bit.  This should
 help eliminate problems caused by an unwanted sign extension of negative datum
 values.
 .P
+If syscall argument comparisons are included in the filter rule, all of the
+comparisons must be true for the rule to match.
+.P
+When adding syscall argument comparisons to the filter it is important to
+remember that while it is possible to have multiple comparisons in a single
+rule, you can only compare each argument once in a single rule.  In other words,
+you can not have multiple comparisons of the 3rd syscall argument in a single
+rule.
+.P
+In a filter containing multiple architectures, it is an error to add a filter
+rule for a syscall that does not exist in all of the filter's architectures.
+.P
 While it is possible to specify the
 .I syscall
 value directly using the standard
@@ -127,7 +150,10 @@ value directly using the standard
 values, in order to ensure proper operation across multiple architectures it
 is highly recommended to use the
 .BR SCMP_SYS ()
-macro instead.  See the EXAMPLES section below.
+macro instead.  See the EXAMPLES section below.  It is also important to
+remember that regardless of the architectures present in the filter, the
+syscall numbers used in filter rules are interpreted in the context of the
+native architecture.
 .P
 Starting with Linux v4.8, there may be a need to create a rule with a syscall
 value of -1 to allow tracing programs to skip a syscall invocation; in order
@@ -183,6 +209,22 @@ matches the filter rule but the syscall will be logged.
 .B SCMP_ACT_ALLOW
 The seccomp filter will have no effect on the thread calling the syscall if it
 matches the filter rule.
+.TP
+.B SCMP_ACT_NOTIFY
+A monitoring process will be notified when a process running the seccomp
+filter calls a syscall that matches the filter rule.  The process that invokes
+the syscall waits in the kernel until the monitoring process has responded via
+.B seccomp_notify_respond(3)
+\&.
+
+When a filter utilizing
+.B SCMP_ACT_NOTIFY
+is loaded into the kernel, the kernel generates a notification fd that must be
+used to communicate between the monitoring process and the process(es) being
+filtered.  See
+.B seccomp_notif_fd(3)
+for more information.
+
 .P
 Valid comparison
 .I op
@@ -259,12 +301,47 @@ SCMP_CMP(
 .SH RETURN VALUE
 .\" //////////////////////////////////////////////////////////////////////////
 The
+.BR SCMP_SYS ()
+macro returns a value suitable for use as the
+.I syscall
+value in the
+.BR seccomp_rule_add* ()
+functions.  In a similar manner, the
+.BR SCMP_CMP ()
+and
+.BR SCMP_A* ()
+macros return values suitable for use as argument comparisons in the
+.BR seccomp_rule_add ()
+and
+.BR seccomp_rule_add_exact ()
+functions.
+.P
+The
 .BR seccomp_rule_add (),
 .BR seccomp_rule_add_array (),
 .BR seccomp_rule_add_exact (),
 and
 .BR seccomp_rule_add_exact_array ()
-functions return zero on success, negative errno values on failure.
+functions return zero on success or one of the following error codes on
+failure:
+.TP
+.B -EDOM
+Architecture specific failure.
+.TP
+.B -EEXIST
+The rule already exists.
+.TP
+.B -EFAULT
+Internal libseccomp failure.
+.TP
+.B -EINVAL
+Invalid input, either the context or architecture token is invalid.
+.TP
+.B -ENOMEM
+The library was unable to allocate enough memory.
+.TP
+.B -EOPNOTSUPP
+The library doesn't support the particular operation.
 .\" //////////////////////////////////////////////////////////////////////////
 .SH EXAMPLES
 .\" //////////////////////////////////////////////////////////////////////////

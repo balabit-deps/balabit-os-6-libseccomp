@@ -841,6 +841,7 @@ static void _db_reset(struct db_filter *db)
 		}
 		db->syscalls = NULL;
 	}
+	db->syscall_cnt = 0;
 
 	/* free any rules */
 	if (db->rules != NULL) {
@@ -908,6 +909,9 @@ static void _db_release(struct db_filter *db)
 static void _db_snap_release(struct db_filter_snap *snap)
 {
 	unsigned int iter;
+
+	if (snap == NULL)
+		return;
 
 	if (snap->filter_cnt > 0) {
 		for (iter = 0; iter < snap->filter_cnt; iter++) {
@@ -1064,9 +1068,16 @@ int db_col_reset(struct db_filter_col *col, uint32_t def_action)
 	col->attr.tsync_enable = 0;
 	col->attr.api_tskip = 0;
 	col->attr.log_enable = 0;
+	col->attr.spec_allow = 0;
+	col->attr.optimize = 1;
+	col->attr.api_sysrawrc = 0;
 
 	/* set the state */
 	col->state = _DB_STA_VALID;
+	if (def_action == SCMP_ACT_NOTIFY)
+		col->notify_used = true;
+	else
+		col->notify_used = false;
 
 	/* reset the initial db */
 	db = _db_init(arch_def_native);
@@ -1128,12 +1139,20 @@ init_failure:
 void db_col_release(struct db_filter_col *col)
 {
 	unsigned int iter;
+	struct db_filter_snap *snap;
 
 	if (col == NULL)
 		return;
 
 	/* set the state, just in case */
 	col->state = _DB_STA_FREED;
+
+	/* free any snapshots */
+	while (col->snapshots != NULL) {
+		snap = col->snapshots;
+		col->snapshots = snap->next;
+		_db_snap_release(snap);
+	}
 
 	/* free any filters */
 	for (iter = 0; iter < col->filter_cnt; iter++)
@@ -1148,20 +1167,6 @@ void db_col_release(struct db_filter_col *col)
 }
 
 /**
- * Validate the seccomp action
- * @param action the seccomp action
- *
- * Verify that the given action is a valid seccomp action; return zero if
- * valid, -EINVAL if invalid.
- */
-int db_action_valid(uint32_t action)
-{
-	if (sys_chk_seccomp_action(action) == 1)
-		return 0;
-	return -EINVAL;
-}
-
-/**
  * Validate a filter collection
  * @param col the seccomp filter collection
  *
@@ -1172,6 +1177,32 @@ int db_action_valid(uint32_t action)
 int db_col_valid(struct db_filter_col *col)
 {
 	if (col != NULL && col->state == _DB_STA_VALID && col->filter_cnt > 0)
+		return 0;
+	return -EINVAL;
+}
+
+/**
+ * Validate the seccomp action
+ * @param col the seccomp filter collection
+ * @param action the seccomp action
+ *
+ * Verify that the given action is a valid seccomp action; return zero if
+ * valid, -EINVAL if invalid.
+ */
+int db_col_action_valid(const struct db_filter_col *col, uint32_t action)
+{
+	if (col != NULL) {
+		/* NOTE: in some cases we don't have a filter collection yet,
+		 *       but when we do we need to do the following checks */
+
+		/* kernel disallows TSYNC and NOTIFY in one filter unless we
+		 * have the TSYNC_ESRCH flag */
+		if (sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH) < 1 &&
+		    col->attr.tsync_enable && action == SCMP_ACT_NOTIFY)
+			return -EINVAL;
+	}
+
+	if (sys_chk_seccomp_action(action) == 1)
 		return 0;
 	return -EINVAL;
 }
@@ -1281,12 +1312,40 @@ int db_col_attr_get(const struct db_filter_col *col,
 	case SCMP_FLTATR_CTL_LOG:
 		*value = col->attr.log_enable;
 		break;
+	case SCMP_FLTATR_CTL_SSB:
+		*value = col->attr.spec_allow;
+		break;
+	case SCMP_FLTATR_CTL_OPTIMIZE:
+		*value = col->attr.optimize;
+		break;
+	case SCMP_FLTATR_API_SYSRAWRC:
+		*value = col->attr.api_sysrawrc;
+		break;
 	default:
-		rc = -EEXIST;
+		rc = -EINVAL;
 		break;
 	}
 
 	return rc;
+}
+
+/**
+ * Get a filter attribute
+ * @param col the seccomp filter collection
+ * @param attr the filter attribute
+ *
+ * Returns the requested filter attribute value with zero on any error.
+ * Special care must be given with this function as error conditions can be
+ * hidden from the caller.
+ *
+ */
+uint32_t db_col_attr_read(const struct db_filter_col *col,
+			  enum scmp_filter_attr attr)
+{
+	uint32_t value = 0;
+
+	db_col_attr_get(col, attr, &value);
+	return value;
 }
 
 /**
@@ -1310,7 +1369,7 @@ int db_col_attr_set(struct db_filter_col *col,
 		return -EACCES;
 		break;
 	case SCMP_FLTATR_ACT_BADARCH:
-		if (db_action_valid(value) == 0)
+		if (db_col_action_valid(col, value) == 0)
 			col->attr.act_badarch = value;
 		else
 			return -EINVAL;
@@ -1323,6 +1382,11 @@ int db_col_attr_set(struct db_filter_col *col,
 		if (rc == 1) {
 			/* supported */
 			rc = 0;
+			/* kernel disallows TSYNC and NOTIFY in one filter
+			 * unless we have TSYNC_ESRCH */
+			if (sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH) < 1 &&
+			    value && col->notify_used)
+				return -EINVAL;
 			col->attr.tsync_enable = (value ? 1 : 0);
 		} else if (rc == 0)
 			/* unsupported */
@@ -1342,8 +1406,33 @@ int db_col_attr_set(struct db_filter_col *col,
 			rc = -EOPNOTSUPP;
 		}
 		break;
+	case SCMP_FLTATR_CTL_SSB:
+		rc = sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW);
+		if (rc == 1) {
+			/* supported */
+			rc = 0;
+			col->attr.spec_allow = (value ? 1 : 0);
+		} else if (rc == 0) {
+			/* unsupported */
+			rc = -EOPNOTSUPP;
+		}
+		break;
+	case SCMP_FLTATR_CTL_OPTIMIZE:
+		switch (value) {
+		case 1:
+		case 2:
+			col->attr.optimize = value;
+			break;
+		default:
+			rc = -EOPNOTSUPP;
+			break;
+		}
+		break;
+	case SCMP_FLTATR_API_SYSRAWRC:
+		col->attr.api_sysrawrc = (value ? 1 : 0);
+		break;
 	default:
-		rc = -EEXIST;
+		rc = -EINVAL;
 		break;
 	}
 
@@ -2008,6 +2097,7 @@ add_reset:
 			s_new->next = db->syscalls;
 			db->syscalls = s_new;
 		}
+		db->syscall_cnt++;
 		return 0;
 	} else if (s_iter->chains == NULL) {
 		if (rm_flag || !s_iter->valid) {
@@ -2147,6 +2237,44 @@ priority_failure:
 }
 
 /**
+ * Add a new rule to a single filter
+ * @param filter the filter
+ * @param rule the filter rule
+ *
+ * This is a helper function for db_col_rule_add() and similar functions, it
+ * isn't generally useful.  Returns zero on success, negative values on error.
+ *
+ */
+static int _db_col_rule_add(struct db_filter *filter,
+			    struct db_api_rule_list *rule)
+{
+	int rc;
+	struct db_api_rule_list *iter;
+
+	/* add the rule to the filter */
+	rc = arch_filter_rule_add(filter, rule);
+	if (rc != 0)
+		return rc;
+
+	/* insert the chain to the end of the rule list */
+	iter = rule;
+	while (iter->next)
+		iter = iter->next;
+	if (filter->rules != NULL) {
+		rule->prev = filter->rules->prev;
+		iter->next = filter->rules;
+		filter->rules->prev->next = rule;
+		filter->rules->prev = iter;
+	} else {
+		rule->prev = iter;
+		iter->next = rule;
+		filter->rules = rule;
+	}
+
+	return 0;
+}
+
+/**
  * Add a new rule to the current filter
  * @param col the filter collection
  * @param strict the strict flag
@@ -2174,7 +2302,7 @@ int db_col_rule_add(struct db_filter_col *col,
 	size_t chain_size;
 	struct db_api_arg *chain = NULL;
 	struct scmp_arg_cmp arg_data;
-	struct db_api_rule_list *rule, *rule_tmp;
+	struct db_api_rule_list *rule;
 	struct db_filter *db;
 
 	/* collect the arguments for the filter rule */
@@ -2222,9 +2350,6 @@ int db_col_rule_add(struct db_filter_col *col,
 
 	/* add the rule to the different filters in the collection */
 	for (iter = 0; iter < col->filter_cnt; iter++) {
-
-		/* TODO: consolidate with db_col_transaction_start() */
-
 		db = col->filters[iter];
 
 		/* create the rule */
@@ -2235,24 +2360,10 @@ int db_col_rule_add(struct db_filter_col *col,
 		}
 
 		/* add the rule */
-		rc_tmp = arch_filter_rule_add(db, rule);
-		if (rc_tmp == 0) {
-			/* insert the chain to the end of the rule list */
-			rule_tmp = rule;
-			while (rule_tmp->next)
-				rule_tmp = rule_tmp->next;
-			if (db->rules != NULL) {
-				rule->prev = db->rules->prev;
-				rule_tmp->next = db->rules;
-				db->rules->prev->next = rule;
-				db->rules->prev = rule_tmp;
-			} else {
-				rule->prev = rule_tmp;
-				rule_tmp->next = rule;
-				db->rules = rule;
-			}
-		} else
+		rc_tmp = _db_col_rule_add(db, rule);
+		if (rc_tmp != 0)
 			free(rule);
+
 add_arch_fail:
 		if (rc_tmp != 0 && rc == 0)
 			rc = rc_tmp;
@@ -2265,6 +2376,9 @@ add_arch_fail:
 		db_col_transaction_abort(col);
 
 add_return:
+	/* update the misc state */
+	if (rc == 0 && action == SCMP_ACT_NOTIFY)
+		col->notify_used = true;
 	if (chain != NULL)
 		free(chain);
 	return rc;
@@ -2284,7 +2398,21 @@ int db_col_transaction_start(struct db_filter_col *col)
 	unsigned int iter;
 	struct db_filter_snap *snap;
 	struct db_filter *filter_o, *filter_s;
-	struct db_api_rule_list *rule_o, *rule_s = NULL, *rule_tmp;
+	struct db_api_rule_list *rule_o, *rule_s = NULL;
+
+	/* check to see if a shadow snapshot exists */
+	if (col->snapshots && col->snapshots->shadow) {
+		/* we have a shadow!  this will be easy */
+
+		/* NOTE: we don't bother to do any verification of the shadow
+		 *       because we start a new transaction every time we add
+		 *       a new rule to the filter(s); if this ever changes we
+		 *       will need to add a mechanism to verify that the shadow
+		 *       transaction is current/correct */
+
+		col->snapshots->shadow = false;
+		return 0;
+	}
 
 	/* allocate the snapshot */
 	snap = zmalloc(sizeof(*snap));
@@ -2314,33 +2442,15 @@ int db_col_transaction_start(struct db_filter_col *col)
 		if (rule_o == NULL)
 			continue;
 		do {
-
-			/* TODO: consolidate with db_col_rule_add() */
-
 			/* duplicate the rule */
 			rule_s = db_rule_dup(rule_o);
 			if (rule_s == NULL)
 				goto trans_start_failure;
 
 			/* add the rule */
-			rc = arch_filter_rule_add(filter_s, rule_s);
+			rc = _db_col_rule_add(filter_s, rule_s);
 			if (rc != 0)
 				goto trans_start_failure;
-
-			/* insert the chain to the end of the rule list */
-			rule_tmp = rule_s;
-			while (rule_tmp->next)
-				rule_tmp = rule_tmp->next;
-			if (filter_s->rules != NULL) {
-				rule_s->prev = filter_s->rules->prev;
-				rule_tmp->next = filter_s->rules;
-				filter_s->rules->prev->next = rule_s;
-				filter_s->rules->prev = rule_tmp;
-			} else {
-				rule_s->prev = rule_tmp;
-				rule_tmp->next = rule_s;
-				filter_s->rules = rule_s;
-			}
 			rule_s = NULL;
 
 			/* next rule */
@@ -2397,14 +2507,114 @@ void db_col_transaction_abort(struct db_filter_col *col)
  * Commit the top most seccomp filter transaction
  * @param col the filter collection
  *
- * This function commits the most recent seccomp filter transaction.
+ * This function commits the most recent seccomp filter transaction and
+ * attempts to create a shadow transaction that is a duplicate of the current
+ * filter to speed up future transactions.
  *
  */
 void db_col_transaction_commit(struct db_filter_col *col)
 {
+	int rc;
+	unsigned int iter;
 	struct db_filter_snap *snap;
+	struct db_filter *filter_o, *filter_s;
+	struct db_api_rule_list *rule_o, *rule_s;
 
 	snap = col->snapshots;
+	if (snap == NULL)
+		return;
+
+	/* check for a shadow set by a higher transaction commit */
+	if (snap->shadow) {
+		/* leave the shadow intact, but drop the next snapshot */
+		if (snap->next) {
+			snap->next = snap->next->next;
+			_db_snap_release(snap->next);
+		}
+		return;
+	}
+
+	/* adjust the number of filters if needed */
+	if (col->filter_cnt > snap->filter_cnt) {
+		unsigned int tmp_i;
+		struct db_filter **tmp_f;
+
+		/* add filters */
+		tmp_f = realloc(snap->filters,
+				sizeof(struct db_filter *) * col->filter_cnt);
+		if (tmp_f == NULL)
+			goto shadow_err;
+		snap->filters = tmp_f;
+		do {
+			tmp_i = snap->filter_cnt;
+			snap->filters[tmp_i] =
+				_db_init(col->filters[tmp_i]->arch);
+			if (snap->filters[tmp_i] == NULL)
+				goto shadow_err;
+			snap->filter_cnt++;
+		} while (snap->filter_cnt < col->filter_cnt);
+	} else if (col->filter_cnt < snap->filter_cnt) {
+		/* remove filters */
+
+		/* NOTE: while we release the filters we no longer need, we
+		 *       don't bother to resize the filter array, we just
+		 *       adjust the filter counter, this *should* be harmless
+		 *       at the cost of a not reaping all the memory possible */
+
+		do {
+			_db_release(snap->filters[snap->filter_cnt--]);
+		} while (snap->filter_cnt > col->filter_cnt);
+	}
+
+	/* loop through each filter and update the rules on the snapshot */
+	for (iter = 0; iter < col->filter_cnt; iter++) {
+		filter_o = col->filters[iter];
+		filter_s = snap->filters[iter];
+
+		/* skip ahead to the new rule(s) */
+		rule_o = filter_o->rules;
+		rule_s = filter_s->rules;
+		if (rule_o == NULL)
+			/* nothing to shadow */
+			continue;
+		if (rule_s != NULL) {
+			do {
+				rule_o = rule_o->next;
+				rule_s = rule_s->next;
+			} while (rule_s != filter_s->rules);
+
+			/* did we actually add any rules? */
+			if (rule_o == filter_o->rules)
+				/* no, we are done in this case */
+				continue;
+		}
+
+		/* update the old snapshot to make it a shadow */
+		do {
+			/* duplicate the rule */
+			rule_s = db_rule_dup(rule_o);
+			if (rule_s == NULL)
+				goto shadow_err;
+
+			/* add the rule */
+			rc = _db_col_rule_add(filter_s, rule_s);
+			if (rc != 0) {
+				free(rule_s);
+				goto shadow_err;
+			}
+
+			/* next rule */
+			rule_o = rule_o->next;
+		} while (rule_o != filter_o->rules);
+	}
+
+	/* success, mark the snapshot as a shadow and return */
+	snap->shadow = true;
+	return;
+
+shadow_err:
+	/* we failed making a shadow, cleanup and return */
 	col->snapshots = snap->next;
 	_db_snap_release(snap);
+	return;
 }

@@ -19,7 +19,7 @@ dnl #
 dnl ####
 dnl libseccomp defines
 dnl ####
-AC_INIT([libseccomp], [2.4.3])
+AC_INIT([libseccomp], [2.5.1])
 
 dnl ####
 dnl autoconf configuration
@@ -65,9 +65,11 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 dnl ####
 dnl build flags
+dnl NOTE: the '-Umips' is here because MIPS GCC compilers "helpfully" define it
+dnl       for us which wreaks havoc on the build
 dnl ####
-AM_CPPFLAGS="-I\${top_srcdir}/include"
-AM_CFLAGS="-Wall"
+AM_CPPFLAGS="-I\${top_srcdir}/include -I\${top_builddir}/include"
+AM_CFLAGS="-Wall -Umips"
 AM_LDFLAGS="-Wl,-z -Wl,relro"
 AC_SUBST([AM_CPPFLAGS])
 AC_SUBST([AM_CFLAGS])
@@ -91,11 +93,11 @@ AC_SUBST([VERSION_MICRO])
 dnl ####
 dnl cython checks
 dnl ####
-AC_CHECK_PROG(have_cython, cython, "yes", "no")
-AS_IF([test "$have_cython" = yes], [
-	AS_ECHO("checking cython version... $(cython -V 2>&1 | cut -d' ' -f 3)")
-	CYTHON_VER_MAJ=$(cython -V 2>&1 | cut -d' ' -f 3 | cut -d'.' -f 1);
-	CYTHON_VER_MIN=$(cython -V 2>&1 | cut -d' ' -f 3 | cut -d'.' -f 2);
+AC_CHECK_PROGS(cython, cython3 cython, "no")
+AS_IF([test "$cython" != no], [
+	AS_ECHO("checking cython version... $($cython -V 2>&1 | cut -d' ' -f 3)")
+	CYTHON_VER_MAJ=$($cython -V 2>&1 | cut -d' ' -f 3 | cut -d'.' -f 1);
+	CYTHON_VER_MIN=$($cython -V 2>&1 | cut -d' ' -f 3 | cut -d'.' -f 2);
 ],[
 	CYTHON_VER_MAJ=0
 	CYTHON_VER_MIN=0
@@ -112,12 +114,17 @@ AS_IF([test "$enable_python" = yes], [
 	AS_IF([test "$CYTHON_VER_MAJ" -eq 0 -a "$CYTHON_VER_MIN" -lt 29], [
 		AC_MSG_ERROR([python bindings require cython 0.29 or higher])
 	])
-	AM_PATH_PYTHON
+	AM_PATH_PYTHON([3])
 ])
 AM_CONDITIONAL([ENABLE_PYTHON], [test "$enable_python" = yes])
 AC_DEFINE_UNQUOTED([ENABLE_PYTHON],
 	[$(test "$enable_python" = yes && echo 1 || echo 0)],
 	[Python bindings build flag.])
+
+AC_CHECK_TOOL(GPERF, gperf)
+if test -z "$GPERF"; then
+	AC_MSG_ERROR([please install gperf])
+fi
 
 dnl ####
 dnl coverity checks

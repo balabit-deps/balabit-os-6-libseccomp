@@ -41,12 +41,9 @@ int main(int argc, char *argv[])
 	seccomp_release(ctx);
 	ctx = NULL;
 
-	/* seccomp_reset error */
-	rc = seccomp_reset(ctx, SCMP_ACT_KILL + 1);
-	if (rc != -EINVAL)
-		return -1;
-	rc = seccomp_reset(ctx, SCMP_ACT_KILL);
-	if (rc != -EINVAL)
+	/* ensure that seccomp_reset(NULL, ...) is accepted */
+	rc = seccomp_reset(NULL, SCMP_ACT_ALLOW);
+	if (rc != 0)
 		return -1;
 
 	/* seccomp_load error */
@@ -81,7 +78,7 @@ int main(int argc, char *argv[])
 		return -1;
 	else {
 		rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(read), 0);
-		if (rc != -EPERM)
+		if (rc != -EACCES)
 			return -1;
 		rc = seccomp_rule_add(ctx, SCMP_ACT_KILL - 1, SCMP_SYS(read), 0);
 		if (rc != -EINVAL)
@@ -151,7 +148,7 @@ int main(int argc, char *argv[])
 		return -1;
 	else {
 		rc = seccomp_export_pfc(ctx, sysconf(_SC_OPEN_MAX) - 1);
-		if (rc != EBADF)
+		if (rc != -ECANCELED)
 			return -1;
 	}
 	seccomp_release(ctx);
@@ -167,7 +164,7 @@ int main(int argc, char *argv[])
 		return -1;
 	else {
 		rc = seccomp_export_bpf(ctx, sysconf(_SC_OPEN_MAX) - 1);
-		if (rc != -EBADF)
+		if (rc != -ECANCELED)
 			return -1;
 	}
 	seccomp_release(ctx);
@@ -178,10 +175,10 @@ int main(int argc, char *argv[])
 	if (ctx == NULL)
 		return -1;
 	rc = seccomp_attr_get(ctx, 1000, &attr);
-	if (rc != -EEXIST)
+	if (rc != -EINVAL)
 		return -1;
 	rc = seccomp_attr_set(ctx, 1000, 1);
-	if (rc != -EEXIST)
+	if (rc != -EINVAL)
 		return -1;
 
 	return 0;

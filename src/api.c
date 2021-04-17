@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/ioctl.h>
 
 #include <seccomp.h>
 
@@ -34,6 +35,7 @@
 #include "db.h"
 #include "gen_pfc.h"
 #include "gen_bpf.h"
+#include "helper.h"
 #include "system.h"
 
 #define API	__attribute__((visibility("default")))
@@ -45,6 +47,72 @@ const struct scmp_version library_version = {
 };
 
 unsigned int seccomp_api_level = 0;
+
+/**
+ * Filter the error codes we send back to callers
+ * @param err the error code
+ *
+ * We consider error codes part of our API so we want to make sure we don't
+ * accidentally send an undocumented error code to our callers.  This function
+ * helps with that.
+ *
+ */
+static int _rc_filter(int err)
+{
+	/* pass through success values */
+	if (err >= 0)
+		return err;
+
+	/* filter the error codes */
+	switch (err) {
+	case -EACCES:
+	/* NOTE: operation is not permitted by libseccomp */
+	case -ECANCELED:
+	/* NOTE: kernel level error that is beyond the control of
+	 *       libseccomp */
+	case -EDOM:
+	/* NOTE: failure due to arch/ABI */
+	case -EEXIST:
+	/* NOTE: operation failed due to existing rule or filter */
+	case -EINVAL:
+	/* NOTE: invalid input to the libseccomp API */
+	case -ENOENT:
+	/* NOTE: no matching entry found */
+	case -ENOMEM:
+	/* NOTE: unable to allocate enough memory to perform the
+	 *       requested operation */
+	case -EOPNOTSUPP:
+	/* NOTE: operation is not supported */
+	case -ESRCH:
+		/* NOTE: operation failed due to multi-threading */
+		return err;
+	default:
+		/* NOTE: this is the default "internal libseccomp error"
+		 *       error code, it is our catch-all */
+		return -EFAULT;
+	}
+}
+
+/**
+ * Filter the system error codes we send back to callers
+ * @param col the filter collection
+ * @param err the error code
+ *
+ * This is similar to _rc_filter(), but it first checks the filter attribute
+ * to determine if we should be filtering the return codes.
+ *
+ */
+static int _rc_filter_sys(struct db_filter_col *col, int err)
+{
+	/* pass through success values */
+	if (err >= 0)
+		return err;
+
+	/* pass the return code if the SCMP_FLTATR_API_SYSRAWRC is true */
+	if (db_col_attr_read(col, SCMP_FLTATR_API_SYSRAWRC))
+		return err;
+	return -ECANCELED;
+}
 
 /**
  * Validate a filter context
@@ -97,16 +165,28 @@ static unsigned int _seccomp_api_update(void)
 
 	/* NOTE: level 1 is the base level, start checking at 2 */
 
-	/* level 2 */
 	if (sys_chk_seccomp_syscall() &&
 	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC) == 1)
 		level = 2;
 
-	/* level 3 */
 	if (level == 2 &&
 	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_LOG) == 1 &&
-	    sys_chk_seccomp_action(SCMP_ACT_LOG) == 1)
+	    sys_chk_seccomp_action(SCMP_ACT_LOG) == 1 &&
+	    sys_chk_seccomp_action(SCMP_ACT_KILL_PROCESS) == 1)
 		level = 3;
+
+	if (level == 3 &&
+	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW) == 1)
+		level = 4;
+
+	if (level == 4 &&
+	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER) == 1 &&
+	    sys_chk_seccomp_action(SCMP_ACT_NOTIFY) == 1)
+		level = 5;
+
+	if (level == 5 &&
+	    sys_chk_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH) == 1)
+		level = 6;
 
 	/* update the stored api level and return */
 	seccomp_api_level = level;
@@ -136,6 +216,10 @@ API int seccomp_api_set(unsigned int level)
 		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, false);
 		sys_set_seccomp_action(SCMP_ACT_LOG, false);
 		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, false);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, false);
 		break;
 	case 2:
 		sys_set_seccomp_syscall(true);
@@ -143,6 +227,10 @@ API int seccomp_api_set(unsigned int level)
 		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, false);
 		sys_set_seccomp_action(SCMP_ACT_LOG, false);
 		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, false);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, false);
 		break;
 	case 3:
 		sys_set_seccomp_syscall(true);
@@ -150,19 +238,59 @@ API int seccomp_api_set(unsigned int level)
 		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, true);
 		sys_set_seccomp_action(SCMP_ACT_LOG, true);
 		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, false);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, false);
+		break;
+	case 4:
+		sys_set_seccomp_syscall(true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, false);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, false);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, false);
+		break;
+	case 5:
+		sys_set_seccomp_syscall(true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, true);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, false);
+		break;
+	case 6:
+		sys_set_seccomp_syscall(true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_LOG, true);
+		sys_set_seccomp_action(SCMP_ACT_KILL_PROCESS, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_SPEC_ALLOW, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_NEW_LISTENER, true);
+		sys_set_seccomp_action(SCMP_ACT_NOTIFY, true);
+		sys_set_seccomp_flag(SECCOMP_FILTER_FLAG_TSYNC_ESRCH, true);
 		break;
 	default:
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	}
 
 	seccomp_api_level = level;
-	return 0;
+	return _rc_filter(0);
 }
 
 /* NOTE - function header comment in include/seccomp.h */
 API scmp_filter_ctx seccomp_init(uint32_t def_action)
 {
-	if (db_action_valid(def_action) < 0)
+	/* force a runtime api level detection */
+	_seccomp_api_update();
+
+	if (db_col_action_valid(NULL, def_action) < 0)
 		return NULL;
 
 	return db_col_init(def_action);
@@ -173,10 +301,19 @@ API int seccomp_reset(scmp_filter_ctx ctx, uint32_t def_action)
 {
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
-	if (ctx == NULL || db_action_valid(def_action) < 0)
-		return -EINVAL;
+	/* a NULL filter context indicates we are resetting the global state */
+	if (ctx == NULL) {
+		/* reset the global state and redetermine the api level */
+		sys_reset_state();
+		_seccomp_api_update();
+		return _rc_filter(0);
+	}
+	/* ensure the default action is valid */
+	if (db_col_action_valid(NULL, def_action) < 0)
+		return _rc_filter(-EINVAL);
 
-	return db_col_reset(col, def_action);
+	/* reset the filter */
+	return _rc_filter(db_col_reset(col, def_action));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -186,22 +323,21 @@ API void seccomp_release(scmp_filter_ctx ctx)
 }
 
 /* NOTE - function header comment in include/seccomp.h */
-API int seccomp_merge(scmp_filter_ctx ctx_dst,
-		      scmp_filter_ctx ctx_src)
+API int seccomp_merge(scmp_filter_ctx ctx_dst, scmp_filter_ctx ctx_src)
 {
 	struct db_filter_col *col_dst = (struct db_filter_col *)ctx_dst;
 	struct db_filter_col *col_src = (struct db_filter_col *)ctx_src;
 
 	if (db_col_valid(col_dst) || db_col_valid(col_src))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
 	/* NOTE: only the default action, NNP, and TSYNC settings must match */
 	if ((col_dst->attr.act_default != col_src->attr.act_default) ||
 	    (col_dst->attr.nnp_enable != col_src->attr.nnp_enable) ||
 	    (col_dst->attr.tsync_enable != col_src->attr.tsync_enable))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	return db_col_merge(col_dst, col_src);
+	return _rc_filter(db_col_merge(col_dst, col_src));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -226,8 +362,7 @@ API uint32_t seccomp_arch_native(void)
 }
 
 /* NOTE - function header comment in include/seccomp.h */
-API int seccomp_arch_exist(const scmp_filter_ctx ctx,
-			   uint32_t arch_token)
+API int seccomp_arch_exist(const scmp_filter_ctx ctx, uint32_t arch_token)
 {
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
@@ -235,9 +370,9 @@ API int seccomp_arch_exist(const scmp_filter_ctx ctx,
 		arch_token = arch_def_native->token;
 
 	if (arch_valid(arch_token))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	return (db_col_arch_exist(col, arch_token) ? 0 : -EEXIST);
+	return _rc_filter((db_col_arch_exist(col, arch_token) ? 0 : -EEXIST));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -251,11 +386,11 @@ API int seccomp_arch_add(scmp_filter_ctx ctx, uint32_t arch_token)
 
 	arch = arch_def_lookup(arch_token);
 	if (arch == NULL)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	if (db_col_arch_exist(col, arch_token))
-		return -EEXIST;
+		return _rc_filter(-EEXIST);
 
-	return db_col_db_new(col, arch);
+	return _rc_filter(db_col_db_new(col, arch));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -267,23 +402,25 @@ API int seccomp_arch_remove(scmp_filter_ctx ctx, uint32_t arch_token)
 		arch_token = arch_def_native->token;
 
 	if (arch_valid(arch_token))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	if (db_col_arch_exist(col, arch_token) != -EEXIST)
-		return -EEXIST;
+		return _rc_filter(-EEXIST);
 
-	return db_col_db_remove(col, arch_token);
+	return _rc_filter(db_col_db_remove(col, arch_token));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
 API int seccomp_load(const scmp_filter_ctx ctx)
 {
 	struct db_filter_col *col;
+	bool rawrc;
 
 	if (_ctx_valid(ctx))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	col = (struct db_filter_col *)ctx;
 
-	return sys_filter_load(col);
+	rawrc = db_col_attr_read(col, SCMP_FLTATR_API_SYSRAWRC);
+	return _rc_filter(sys_filter_load(col, rawrc));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -291,9 +428,10 @@ API int seccomp_attr_get(const scmp_filter_ctx ctx,
 			 enum scmp_filter_attr attr, uint32_t *value)
 {
 	if (_ctx_valid(ctx))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	return db_col_attr_get((const struct db_filter_col *)ctx, attr, value);
+	return _rc_filter(db_col_attr_get((const struct db_filter_col *)ctx,
+					  attr, value));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -301,9 +439,10 @@ API int seccomp_attr_set(scmp_filter_ctx ctx,
 			 enum scmp_filter_attr attr, uint32_t value)
 {
 	if (_ctx_valid(ctx))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	return db_col_attr_set((struct db_filter_col *)ctx, attr, value);
+	return _rc_filter(db_col_attr_set((struct db_filter_col *)ctx,
+					  attr, value));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -391,9 +530,9 @@ API int seccomp_syscall_priority(scmp_filter_ctx ctx,
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
 	if (db_col_valid(col) || _syscall_valid(col, syscall))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	return db_col_syscall_priority(col, syscall, priority);
+	return _rc_filter(db_col_syscall_priority(col, syscall, priority));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -406,20 +545,21 @@ API int seccomp_rule_add_array(scmp_filter_ctx ctx,
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
 	if (arg_cnt > ARG_COUNT_MAX)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	if (arg_cnt > 0 && arg_array == NULL)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
 	if (db_col_valid(col) || _syscall_valid(col, syscall))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	rc = db_action_valid(action);
+	rc = db_col_action_valid(col, action);
 	if (rc < 0)
-		return rc;
+		return _rc_filter(rc);
 	if (action == col->attr.act_default)
-		return -EPERM;
+		return _rc_filter(-EACCES);
 
-	return db_col_rule_add(col, 0, action, syscall, arg_cnt, arg_array);
+	return _rc_filter(db_col_rule_add(col, 0, action,
+					  syscall, arg_cnt, arg_array));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -434,7 +574,7 @@ API int seccomp_rule_add(scmp_filter_ctx ctx,
 
 	/* arg_cnt is unsigned, so no need to check the lower bound */
 	if (arg_cnt > ARG_COUNT_MAX)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
 	va_start(arg_list, arg_cnt);
 	for (iter = 0; iter < arg_cnt; ++iter)
@@ -442,7 +582,7 @@ API int seccomp_rule_add(scmp_filter_ctx ctx,
 	rc = seccomp_rule_add_array(ctx, action, syscall, arg_cnt, arg_array);
 	va_end(arg_list);
 
-	return rc;
+	return _rc_filter(rc);
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -455,23 +595,24 @@ API int seccomp_rule_add_exact_array(scmp_filter_ctx ctx,
 	struct db_filter_col *col = (struct db_filter_col *)ctx;
 
 	if (arg_cnt > ARG_COUNT_MAX)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 	if (arg_cnt > 0 && arg_array == NULL)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
 	if (db_col_valid(col) || _syscall_valid(col, syscall))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
-	rc = db_action_valid(action);
+	rc = db_col_action_valid(col, action);
 	if (rc < 0)
-		return rc;
+		return _rc_filter(rc);
 	if (action == col->attr.act_default)
-		return -EPERM;
+		return _rc_filter(-EACCES);
 
 	if (col->filter_cnt > 1)
-		return -EOPNOTSUPP;
+		return _rc_filter(-EOPNOTSUPP);
 
-	return db_col_rule_add(col, 1, action, syscall, arg_cnt, arg_array);
+	return _rc_filter(db_col_rule_add(col, 1, action,
+					  syscall, arg_cnt, arg_array));
 }
 
 /* NOTE - function header comment in include/seccomp.h */
@@ -486,7 +627,7 @@ API int seccomp_rule_add_exact(scmp_filter_ctx ctx,
 
 	/* arg_cnt is unsigned, so no need to check the lower bound */
 	if (arg_cnt > ARG_COUNT_MAX)
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
 
 	va_start(arg_list, arg_cnt);
 	for (iter = 0; iter < arg_cnt; ++iter)
@@ -495,34 +636,98 @@ API int seccomp_rule_add_exact(scmp_filter_ctx ctx,
 					  action, syscall, arg_cnt, arg_array);
 	va_end(arg_list);
 
-	return rc;
+	return _rc_filter(rc);
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_notify_alloc(struct seccomp_notif **req,
+			     struct seccomp_notif_resp **resp)
+{
+	/* force a runtime api level detection */
+	_seccomp_api_update();
+
+	return _rc_filter(sys_notify_alloc(req, resp));
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API void seccomp_notify_free(struct seccomp_notif *req,
+			     struct seccomp_notif_resp *resp)
+{
+	if (req)
+		free(req);
+	if (resp)
+		free(resp);
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_notify_receive(int fd, struct seccomp_notif *req)
+{
+	return _rc_filter(sys_notify_receive(fd, req));
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_notify_respond(int fd, struct seccomp_notif_resp *resp)
+{
+	return _rc_filter(sys_notify_respond(fd, resp));
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_notify_id_valid(int fd, uint64_t id)
+{
+	/* force a runtime api level detection */
+	_seccomp_api_update();
+
+	return _rc_filter(sys_notify_id_valid(fd, id));
+}
+
+/* NOTE - function header comment in include/seccomp.h */
+API int seccomp_notify_fd(const scmp_filter_ctx ctx)
+{
+	/* NOTE: for historical reasons, and possibly future use, we require a
+	 * valid filter context even though we don't actual use it here; the
+	 * api update is also not strictly necessary, but keep it for now */
+
+	/* force a runtime api level detection */
+	_seccomp_api_update();
+
+	if (_ctx_valid(ctx))
+		return _rc_filter(-EINVAL);
+
+	return _rc_filter(sys_notify_fd());
 }
 
 /* NOTE - function header comment in include/seccomp.h */
 API int seccomp_export_pfc(const scmp_filter_ctx ctx, int fd)
 {
-	if (_ctx_valid(ctx))
-		return -EINVAL;
+	int rc;
+	struct db_filter_col *col;
 
-	return gen_pfc_generate((struct db_filter_col *)ctx, fd);
+	if (_ctx_valid(ctx))
+		return _rc_filter(-EINVAL);
+	col = (struct db_filter_col *)ctx;
+
+	rc = gen_pfc_generate(col, fd);
+	return _rc_filter_sys(col, rc);
 }
 
 /* NOTE - function header comment in include/seccomp.h */
 API int seccomp_export_bpf(const scmp_filter_ctx ctx, int fd)
 {
 	int rc;
+	struct db_filter_col *col;
 	struct bpf_program *program;
 
 	if (_ctx_valid(ctx))
-		return -EINVAL;
+		return _rc_filter(-EINVAL);
+	col = (struct db_filter_col *)ctx;
 
-	program = gen_bpf_generate((struct db_filter_col *)ctx);
-	if (program == NULL)
-		return -ENOMEM;
+	rc = gen_bpf_generate(col, &program);
+	if (rc < 0)
+		return _rc_filter(rc);
 	rc = write(fd, program->blks, BPF_PGM_SIZE(program));
 	gen_bpf_release(program);
 	if (rc < 0)
-		return -errno;
+		return _rc_filter_sys(col, -errno);
 
 	return 0;
 }

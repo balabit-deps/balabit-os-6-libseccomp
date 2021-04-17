@@ -116,7 +116,7 @@ check_PROGRAMS = miniseq$(EXEEXT) 01-sim-allow$(EXEEXT) \
 	12-sim-basic_masked_ops$(EXEEXT) 13-basic-attrs$(EXEEXT) \
 	14-sim-reset$(EXEEXT) 15-basic-resolver$(EXEEXT) \
 	16-sim-arch_basic$(EXEEXT) 17-sim-arch_merge$(EXEEXT) \
-	18-sim-basic_whitelist$(EXEEXT) \
+	18-sim-basic_allowlist$(EXEEXT) \
 	19-sim-missing_syscalls$(EXEEXT) 20-live-basic_die$(EXEEXT) \
 	21-live-basic_allow$(EXEEXT) \
 	22-sim-basic_chains_array$(EXEEXT) \
@@ -127,7 +127,7 @@ check_PROGRAMS = miniseq$(EXEEXT) 01-sim-allow$(EXEEXT) \
 	29-sim-pseudo_syscall$(EXEEXT) 30-sim-socket_syscalls$(EXEEXT) \
 	31-basic-version_check$(EXEEXT) 32-live-tsync_allow$(EXEEXT) \
 	33-sim-socket_syscalls_be$(EXEEXT) \
-	34-sim-basic_blacklist$(EXEEXT) 35-sim-negative_one$(EXEEXT) \
+	34-sim-basic_denylist$(EXEEXT) 35-sim-negative_one$(EXEEXT) \
 	36-sim-ipc_syscalls$(EXEEXT) 37-sim-ipc_syscalls_be$(EXEEXT) \
 	38-basic-pfc_coverage$(EXEEXT) 39-basic-api_level$(EXEEXT) \
 	40-sim-log$(EXEEXT) 41-sim-syscall_priority_arch$(EXEEXT) \
@@ -135,7 +135,12 @@ check_PROGRAMS = miniseq$(EXEEXT) 01-sim-allow$(EXEEXT) \
 	44-live-a2_order$(EXEEXT) 45-sim-chain_code_coverage$(EXEEXT) \
 	46-sim-kill_process$(EXEEXT) 47-live-kill_process$(EXEEXT) \
 	48-sim-32b_args$(EXEEXT) 49-sim-64b_comparisons$(EXEEXT) \
-	50-sim-hash_collision$(EXEEXT) 52-basic-load$(EXEEXT)
+	50-sim-hash_collision$(EXEEXT) \
+	51-live-user_notification$(EXEEXT) 52-basic-load$(EXEEXT) \
+	53-sim-binary_tree$(EXEEXT) 54-live-binary_tree$(EXEEXT) \
+	55-basic-pfc_binary_tree$(EXEEXT) \
+	56-basic-iterate_syscalls$(EXEEXT) 57-basic-rawsysrc$(EXEEXT) \
+	58-live-tsync_notify$(EXEEXT)
 EXTRA_PROGRAMS = 00-test$(EXEEXT)
 subdir = tests
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -253,10 +258,10 @@ am__DEPENDENCIES_1 =
 17_sim_arch_merge_LDADD = $(LDADD)
 17_sim_arch_merge_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
-18_sim_basic_whitelist_SOURCES = 18-sim-basic_whitelist.c
-18_sim_basic_whitelist_OBJECTS = 18-sim-basic_whitelist.$(OBJEXT)
-18_sim_basic_whitelist_LDADD = $(LDADD)
-18_sim_basic_whitelist_DEPENDENCIES = util.la ../src/libseccomp.la \
+18_sim_basic_allowlist_SOURCES = 18-sim-basic_allowlist.c
+18_sim_basic_allowlist_OBJECTS = 18-sim-basic_allowlist.$(OBJEXT)
+18_sim_basic_allowlist_LDADD = $(LDADD)
+18_sim_basic_allowlist_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
 19_sim_missing_syscalls_SOURCES = 19-sim-missing_syscalls.c
 19_sim_missing_syscalls_OBJECTS = 19-sim-missing_syscalls.$(OBJEXT)
@@ -336,10 +341,10 @@ am__DEPENDENCIES_1 =
 33_sim_socket_syscalls_be_LDADD = $(LDADD)
 33_sim_socket_syscalls_be_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
-34_sim_basic_blacklist_SOURCES = 34-sim-basic_blacklist.c
-34_sim_basic_blacklist_OBJECTS = 34-sim-basic_blacklist.$(OBJEXT)
-34_sim_basic_blacklist_LDADD = $(LDADD)
-34_sim_basic_blacklist_DEPENDENCIES = util.la ../src/libseccomp.la \
+34_sim_basic_denylist_SOURCES = 34-sim-basic_denylist.c
+34_sim_basic_denylist_OBJECTS = 34-sim-basic_denylist.$(OBJEXT)
+34_sim_basic_denylist_LDADD = $(LDADD)
+34_sim_basic_denylist_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
 35_sim_negative_one_SOURCES = 35-sim-negative_one.c
 35_sim_negative_one_OBJECTS = 35-sim-negative_one.$(OBJEXT)
@@ -423,10 +428,47 @@ am__DEPENDENCIES_1 =
 50_sim_hash_collision_LDADD = $(LDADD)
 50_sim_hash_collision_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
+51_live_user_notification_SOURCES = 51-live-user_notification.c
+51_live_user_notification_OBJECTS =  \
+	51-live-user_notification.$(OBJEXT)
+51_live_user_notification_LDADD = $(LDADD)
+51_live_user_notification_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
 52_basic_load_SOURCES = 52-basic-load.c
 52_basic_load_OBJECTS = 52-basic-load.$(OBJEXT)
 52_basic_load_LDADD = $(LDADD)
 52_basic_load_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+53_sim_binary_tree_SOURCES = 53-sim-binary_tree.c
+53_sim_binary_tree_OBJECTS = 53-sim-binary_tree.$(OBJEXT)
+53_sim_binary_tree_LDADD = $(LDADD)
+53_sim_binary_tree_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+54_live_binary_tree_SOURCES = 54-live-binary_tree.c
+54_live_binary_tree_OBJECTS = 54-live-binary_tree.$(OBJEXT)
+54_live_binary_tree_LDADD = $(LDADD)
+54_live_binary_tree_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+55_basic_pfc_binary_tree_SOURCES = 55-basic-pfc_binary_tree.c
+55_basic_pfc_binary_tree_OBJECTS = 55-basic-pfc_binary_tree.$(OBJEXT)
+55_basic_pfc_binary_tree_LDADD = $(LDADD)
+55_basic_pfc_binary_tree_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+56_basic_iterate_syscalls_SOURCES = 56-basic-iterate_syscalls.c
+56_basic_iterate_syscalls_OBJECTS =  \
+	56-basic-iterate_syscalls.$(OBJEXT)
+56_basic_iterate_syscalls_LDADD = $(LDADD)
+56_basic_iterate_syscalls_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+57_basic_rawsysrc_SOURCES = 57-basic-rawsysrc.c
+57_basic_rawsysrc_OBJECTS = 57-basic-rawsysrc.$(OBJEXT)
+57_basic_rawsysrc_LDADD = $(LDADD)
+57_basic_rawsysrc_DEPENDENCIES = util.la ../src/libseccomp.la \
+	$(am__DEPENDENCIES_1)
+58_live_tsync_notify_SOURCES = 58-live-tsync_notify.c
+58_live_tsync_notify_OBJECTS = 58-live-tsync_notify.$(OBJEXT)
+58_live_tsync_notify_LDADD = $(LDADD)
+58_live_tsync_notify_DEPENDENCIES = util.la ../src/libseccomp.la \
 	$(am__DEPENDENCIES_1)
 miniseq_SOURCES = miniseq.c
 miniseq_OBJECTS = miniseq.$(OBJEXT)
@@ -461,7 +503,7 @@ am__depfiles_remade = ./$(DEPDIR)/00-test.Po \
 	./$(DEPDIR)/15-basic-resolver.Po \
 	./$(DEPDIR)/16-sim-arch_basic.Po \
 	./$(DEPDIR)/17-sim-arch_merge.Po \
-	./$(DEPDIR)/18-sim-basic_whitelist.Po \
+	./$(DEPDIR)/18-sim-basic_allowlist.Po \
 	./$(DEPDIR)/19-sim-missing_syscalls.Po \
 	./$(DEPDIR)/20-live-basic_die.Po \
 	./$(DEPDIR)/21-live-basic_allow.Po \
@@ -477,7 +519,7 @@ am__depfiles_remade = ./$(DEPDIR)/00-test.Po \
 	./$(DEPDIR)/31-basic-version_check.Po \
 	./$(DEPDIR)/32-live-tsync_allow.Po \
 	./$(DEPDIR)/33-sim-socket_syscalls_be.Po \
-	./$(DEPDIR)/34-sim-basic_blacklist.Po \
+	./$(DEPDIR)/34-sim-basic_denylist.Po \
 	./$(DEPDIR)/35-sim-negative_one.Po \
 	./$(DEPDIR)/36-sim-ipc_syscalls.Po \
 	./$(DEPDIR)/37-sim-ipc_syscalls_be.Po \
@@ -492,7 +534,13 @@ am__depfiles_remade = ./$(DEPDIR)/00-test.Po \
 	./$(DEPDIR)/48-sim-32b_args.Po \
 	./$(DEPDIR)/49-sim-64b_comparisons.Po \
 	./$(DEPDIR)/50-sim-hash_collision.Po \
-	./$(DEPDIR)/52-basic-load.Po ./$(DEPDIR)/miniseq.Po \
+	./$(DEPDIR)/51-live-user_notification.Po \
+	./$(DEPDIR)/52-basic-load.Po ./$(DEPDIR)/53-sim-binary_tree.Po \
+	./$(DEPDIR)/54-live-binary_tree.Po \
+	./$(DEPDIR)/55-basic-pfc_binary_tree.Po \
+	./$(DEPDIR)/56-basic-iterate_syscalls.Po \
+	./$(DEPDIR)/57-basic-rawsysrc.Po \
+	./$(DEPDIR)/58-live-tsync_notify.Po ./$(DEPDIR)/miniseq.Po \
 	./$(DEPDIR)/util.Plo
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
@@ -521,7 +569,7 @@ SOURCES = $(util_la_SOURCES) $(nodist_00_test_SOURCES) 01-sim-allow.c \
 	10-sim-syscall_priority_post.c 11-basic-basic_errors.c \
 	12-sim-basic_masked_ops.c 13-basic-attrs.c 14-sim-reset.c \
 	15-basic-resolver.c 16-sim-arch_basic.c 17-sim-arch_merge.c \
-	18-sim-basic_whitelist.c 19-sim-missing_syscalls.c \
+	18-sim-basic_allowlist.c 19-sim-missing_syscalls.c \
 	20-live-basic_die.c 21-live-basic_allow.c \
 	22-sim-basic_chains_array.c 23-sim-arch_all_le_basic.c \
 	24-live-arg_allow.c 25-sim-multilevel_chains_adv.c \
@@ -529,7 +577,7 @@ SOURCES = $(util_la_SOURCES) $(nodist_00_test_SOURCES) 01-sim-allow.c \
 	28-sim-arch_x86.c 29-sim-pseudo_syscall.c \
 	30-sim-socket_syscalls.c 31-basic-version_check.c \
 	32-live-tsync_allow.c 33-sim-socket_syscalls_be.c \
-	34-sim-basic_blacklist.c 35-sim-negative_one.c \
+	34-sim-basic_denylist.c 35-sim-negative_one.c \
 	36-sim-ipc_syscalls.c 37-sim-ipc_syscalls_be.c \
 	38-basic-pfc_coverage.c 39-basic-api_level.c 40-sim-log.c \
 	41-sim-syscall_priority_arch.c 42-sim-adv_chains.c \
@@ -537,7 +585,10 @@ SOURCES = $(util_la_SOURCES) $(nodist_00_test_SOURCES) 01-sim-allow.c \
 	45-sim-chain_code_coverage.c 46-sim-kill_process.c \
 	47-live-kill_process.c 48-sim-32b_args.c \
 	49-sim-64b_comparisons.c 50-sim-hash_collision.c \
-	52-basic-load.c miniseq.c
+	51-live-user_notification.c 52-basic-load.c \
+	53-sim-binary_tree.c 54-live-binary_tree.c \
+	55-basic-pfc_binary_tree.c 56-basic-iterate_syscalls.c \
+	57-basic-rawsysrc.c 58-live-tsync_notify.c miniseq.c
 DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	03-sim-basic_chains.c 04-sim-multilevel_chains.c \
 	05-sim-long_jumps.c 06-sim-actions.c 07-sim-db_bug_looping.c \
@@ -545,7 +596,7 @@ DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	10-sim-syscall_priority_post.c 11-basic-basic_errors.c \
 	12-sim-basic_masked_ops.c 13-basic-attrs.c 14-sim-reset.c \
 	15-basic-resolver.c 16-sim-arch_basic.c 17-sim-arch_merge.c \
-	18-sim-basic_whitelist.c 19-sim-missing_syscalls.c \
+	18-sim-basic_allowlist.c 19-sim-missing_syscalls.c \
 	20-live-basic_die.c 21-live-basic_allow.c \
 	22-sim-basic_chains_array.c 23-sim-arch_all_le_basic.c \
 	24-live-arg_allow.c 25-sim-multilevel_chains_adv.c \
@@ -553,7 +604,7 @@ DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	28-sim-arch_x86.c 29-sim-pseudo_syscall.c \
 	30-sim-socket_syscalls.c 31-basic-version_check.c \
 	32-live-tsync_allow.c 33-sim-socket_syscalls_be.c \
-	34-sim-basic_blacklist.c 35-sim-negative_one.c \
+	34-sim-basic_denylist.c 35-sim-negative_one.c \
 	36-sim-ipc_syscalls.c 37-sim-ipc_syscalls_be.c \
 	38-basic-pfc_coverage.c 39-basic-api_level.c 40-sim-log.c \
 	41-sim-syscall_priority_arch.c 42-sim-adv_chains.c \
@@ -561,7 +612,10 @@ DIST_SOURCES = $(util_la_SOURCES) 01-sim-allow.c 02-sim-basic.c \
 	45-sim-chain_code_coverage.c 46-sim-kill_process.c \
 	47-live-kill_process.c 48-sim-32b_args.c \
 	49-sim-64b_comparisons.c 50-sim-hash_collision.c \
-	52-basic-load.c miniseq.c
+	51-live-user_notification.c 52-basic-load.c \
+	53-sim-binary_tree.c 54-live-binary_tree.c \
+	55-basic-pfc_binary_tree.c 56-basic-iterate_syscalls.c \
+	57-basic-rawsysrc.c 58-live-tsync_notify.c miniseq.c
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -647,6 +701,7 @@ EXEEXT = @EXEEXT@
 FGREP = @FGREP@
 GCOV = @GCOV@
 GENHTML = @GENHTML@
+GPERF = @GPERF@
 GREP = @GREP@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
@@ -713,13 +768,13 @@ build_cpu = @build_cpu@
 build_os = @build_os@
 build_vendor = @build_vendor@
 builddir = @builddir@
+cython = @cython@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
 dvidir = @dvidir@
 exec_prefix = @exec_prefix@
 have_coverity = @have_coverity@
-have_cython = @have_cython@
 host = @host@
 host_alias = @host_alias@
 host_cpu = @host_cpu@
@@ -780,7 +835,7 @@ EXTRA_DIST_TESTPYTHON = \
 	15-basic-resolver.py \
 	16-sim-arch_basic.py \
 	17-sim-arch_merge.py \
-	18-sim-basic_whitelist.py \
+	18-sim-basic_allowlist.py \
 	19-sim-missing_syscalls.py \
 	20-live-basic_die.py \
 	21-live-basic_allow.py \
@@ -796,7 +851,7 @@ EXTRA_DIST_TESTPYTHON = \
 	31-basic-version_check.py \
 	32-live-tsync_allow.py \
 	33-sim-socket_syscalls_be.py \
-	34-sim-basic_blacklist.py \
+	34-sim-basic_denylist.py \
 	35-sim-negative_one.py \
 	36-sim-ipc_syscalls.py \
 	37-sim-ipc_syscalls_be.py \
@@ -812,7 +867,13 @@ EXTRA_DIST_TESTPYTHON = \
 	48-sim-32b_args.py \
 	49-sim-64b_comparisons.py \
 	50-sim-hash_collision.py \
-	52-basic-load.py
+	51-live-user_notification.py \
+	52-basic-load.py \
+	53-sim-binary_tree.py \
+	54-live-binary_tree.py \
+	56-basic-iterate_syscalls.py \
+	57-basic-rawsysrc.py \
+	58-live-tsync_notify.py
 
 EXTRA_DIST_TESTCFGS = \
 	01-sim-allow.tests \
@@ -832,7 +893,7 @@ EXTRA_DIST_TESTCFGS = \
 	15-basic-resolver.tests \
 	16-sim-arch_basic.tests \
 	17-sim-arch_merge.tests \
-	18-sim-basic_whitelist.tests \
+	18-sim-basic_allowlist.tests \
 	19-sim-missing_syscalls.tests \
 	20-live-basic_die.tests \
 	21-live-basic_allow.tests \
@@ -848,7 +909,7 @@ EXTRA_DIST_TESTCFGS = \
 	31-basic-version_check.tests \
 	32-live-tsync_allow.tests \
 	33-sim-socket_syscalls_be.tests \
-	34-sim-basic_blacklist.tests \
+	34-sim-basic_denylist.tests \
 	35-sim-negative_one.tests \
 	36-sim-ipc_syscalls.tests \
 	37-sim-ipc_syscalls_be.tests \
@@ -865,10 +926,18 @@ EXTRA_DIST_TESTCFGS = \
 	48-sim-32b_args.tests \
 	49-sim-64b_comparisons.tests \
 	50-sim-hash_collision.tests \
-	52-basic-load.tests
+	51-live-user_notification.tests \
+	52-basic-load.tests \
+	53-sim-binary_tree.tests \
+	54-live-binary_tree.tests \
+	55-basic-pfc_binary_tree.tests \
+	56-basic-iterate_syscalls.tests \
+	57-basic-rawsysrc.tests \
+	58-live-tsync_notify.tests
 
 EXTRA_DIST_TESTSCRIPTS = \
-	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc
+	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc \
+	55-basic-pfc_binary_tree.sh 55-basic-pfc_binary_tree.pfc
 
 EXTRA_DIST_TESTTOOLS = regression testdiff testgen
 EXTRA_DIST_TESTVALGRIND = valgrind_test.supp
@@ -1009,9 +1078,9 @@ util.la: $(util_la_OBJECTS) $(util_la_DEPENDENCIES) $(EXTRA_util_la_DEPENDENCIES
 	@rm -f 17-sim-arch_merge$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(17_sim_arch_merge_OBJECTS) $(17_sim_arch_merge_LDADD) $(LIBS)
 
-18-sim-basic_whitelist$(EXEEXT): $(18_sim_basic_whitelist_OBJECTS) $(18_sim_basic_whitelist_DEPENDENCIES) $(EXTRA_18_sim_basic_whitelist_DEPENDENCIES) 
-	@rm -f 18-sim-basic_whitelist$(EXEEXT)
-	$(AM_V_CCLD)$(LINK) $(18_sim_basic_whitelist_OBJECTS) $(18_sim_basic_whitelist_LDADD) $(LIBS)
+18-sim-basic_allowlist$(EXEEXT): $(18_sim_basic_allowlist_OBJECTS) $(18_sim_basic_allowlist_DEPENDENCIES) $(EXTRA_18_sim_basic_allowlist_DEPENDENCIES) 
+	@rm -f 18-sim-basic_allowlist$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(18_sim_basic_allowlist_OBJECTS) $(18_sim_basic_allowlist_LDADD) $(LIBS)
 
 19-sim-missing_syscalls$(EXEEXT): $(19_sim_missing_syscalls_OBJECTS) $(19_sim_missing_syscalls_DEPENDENCIES) $(EXTRA_19_sim_missing_syscalls_DEPENDENCIES) 
 	@rm -f 19-sim-missing_syscalls$(EXEEXT)
@@ -1073,9 +1142,9 @@ util.la: $(util_la_OBJECTS) $(util_la_DEPENDENCIES) $(EXTRA_util_la_DEPENDENCIES
 	@rm -f 33-sim-socket_syscalls_be$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(33_sim_socket_syscalls_be_OBJECTS) $(33_sim_socket_syscalls_be_LDADD) $(LIBS)
 
-34-sim-basic_blacklist$(EXEEXT): $(34_sim_basic_blacklist_OBJECTS) $(34_sim_basic_blacklist_DEPENDENCIES) $(EXTRA_34_sim_basic_blacklist_DEPENDENCIES) 
-	@rm -f 34-sim-basic_blacklist$(EXEEXT)
-	$(AM_V_CCLD)$(LINK) $(34_sim_basic_blacklist_OBJECTS) $(34_sim_basic_blacklist_LDADD) $(LIBS)
+34-sim-basic_denylist$(EXEEXT): $(34_sim_basic_denylist_OBJECTS) $(34_sim_basic_denylist_DEPENDENCIES) $(EXTRA_34_sim_basic_denylist_DEPENDENCIES) 
+	@rm -f 34-sim-basic_denylist$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(34_sim_basic_denylist_OBJECTS) $(34_sim_basic_denylist_LDADD) $(LIBS)
 
 35-sim-negative_one$(EXEEXT): $(35_sim_negative_one_OBJECTS) $(35_sim_negative_one_DEPENDENCIES) $(EXTRA_35_sim_negative_one_DEPENDENCIES) 
 	@rm -f 35-sim-negative_one$(EXEEXT)
@@ -1141,9 +1210,37 @@ util.la: $(util_la_OBJECTS) $(util_la_DEPENDENCIES) $(EXTRA_util_la_DEPENDENCIES
 	@rm -f 50-sim-hash_collision$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(50_sim_hash_collision_OBJECTS) $(50_sim_hash_collision_LDADD) $(LIBS)
 
+51-live-user_notification$(EXEEXT): $(51_live_user_notification_OBJECTS) $(51_live_user_notification_DEPENDENCIES) $(EXTRA_51_live_user_notification_DEPENDENCIES) 
+	@rm -f 51-live-user_notification$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(51_live_user_notification_OBJECTS) $(51_live_user_notification_LDADD) $(LIBS)
+
 52-basic-load$(EXEEXT): $(52_basic_load_OBJECTS) $(52_basic_load_DEPENDENCIES) $(EXTRA_52_basic_load_DEPENDENCIES) 
 	@rm -f 52-basic-load$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(52_basic_load_OBJECTS) $(52_basic_load_LDADD) $(LIBS)
+
+53-sim-binary_tree$(EXEEXT): $(53_sim_binary_tree_OBJECTS) $(53_sim_binary_tree_DEPENDENCIES) $(EXTRA_53_sim_binary_tree_DEPENDENCIES) 
+	@rm -f 53-sim-binary_tree$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(53_sim_binary_tree_OBJECTS) $(53_sim_binary_tree_LDADD) $(LIBS)
+
+54-live-binary_tree$(EXEEXT): $(54_live_binary_tree_OBJECTS) $(54_live_binary_tree_DEPENDENCIES) $(EXTRA_54_live_binary_tree_DEPENDENCIES) 
+	@rm -f 54-live-binary_tree$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(54_live_binary_tree_OBJECTS) $(54_live_binary_tree_LDADD) $(LIBS)
+
+55-basic-pfc_binary_tree$(EXEEXT): $(55_basic_pfc_binary_tree_OBJECTS) $(55_basic_pfc_binary_tree_DEPENDENCIES) $(EXTRA_55_basic_pfc_binary_tree_DEPENDENCIES) 
+	@rm -f 55-basic-pfc_binary_tree$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(55_basic_pfc_binary_tree_OBJECTS) $(55_basic_pfc_binary_tree_LDADD) $(LIBS)
+
+56-basic-iterate_syscalls$(EXEEXT): $(56_basic_iterate_syscalls_OBJECTS) $(56_basic_iterate_syscalls_DEPENDENCIES) $(EXTRA_56_basic_iterate_syscalls_DEPENDENCIES) 
+	@rm -f 56-basic-iterate_syscalls$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(56_basic_iterate_syscalls_OBJECTS) $(56_basic_iterate_syscalls_LDADD) $(LIBS)
+
+57-basic-rawsysrc$(EXEEXT): $(57_basic_rawsysrc_OBJECTS) $(57_basic_rawsysrc_DEPENDENCIES) $(EXTRA_57_basic_rawsysrc_DEPENDENCIES) 
+	@rm -f 57-basic-rawsysrc$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(57_basic_rawsysrc_OBJECTS) $(57_basic_rawsysrc_LDADD) $(LIBS)
+
+58-live-tsync_notify$(EXEEXT): $(58_live_tsync_notify_OBJECTS) $(58_live_tsync_notify_DEPENDENCIES) $(EXTRA_58_live_tsync_notify_DEPENDENCIES) 
+	@rm -f 58-live-tsync_notify$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(58_live_tsync_notify_OBJECTS) $(58_live_tsync_notify_LDADD) $(LIBS)
 
 miniseq$(EXEEXT): $(miniseq_OBJECTS) $(miniseq_DEPENDENCIES) $(EXTRA_miniseq_DEPENDENCIES) 
 	@rm -f miniseq$(EXEEXT)
@@ -1173,7 +1270,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/15-basic-resolver.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/16-sim-arch_basic.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/17-sim-arch_merge.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/18-sim-basic_whitelist.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/18-sim-basic_allowlist.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/19-sim-missing_syscalls.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/20-live-basic_die.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/21-live-basic_allow.Po@am__quote@ # am--include-marker
@@ -1189,7 +1286,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/31-basic-version_check.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/32-live-tsync_allow.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/33-sim-socket_syscalls_be.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/34-sim-basic_blacklist.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/34-sim-basic_denylist.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/35-sim-negative_one.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/36-sim-ipc_syscalls.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/37-sim-ipc_syscalls_be.Po@am__quote@ # am--include-marker
@@ -1206,7 +1303,14 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/48-sim-32b_args.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/49-sim-64b_comparisons.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/50-sim-hash_collision.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/51-live-user_notification.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/52-basic-load.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/53-sim-binary_tree.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/54-live-binary_tree.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/55-basic-pfc_binary_tree.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/56-basic-iterate_syscalls.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/57-basic-rawsysrc.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/58-live-tsync_notify.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/miniseq.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/util.Plo@am__quote@ # am--include-marker
 
@@ -1484,7 +1588,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/15-basic-resolver.Po
 	-rm -f ./$(DEPDIR)/16-sim-arch_basic.Po
 	-rm -f ./$(DEPDIR)/17-sim-arch_merge.Po
-	-rm -f ./$(DEPDIR)/18-sim-basic_whitelist.Po
+	-rm -f ./$(DEPDIR)/18-sim-basic_allowlist.Po
 	-rm -f ./$(DEPDIR)/19-sim-missing_syscalls.Po
 	-rm -f ./$(DEPDIR)/20-live-basic_die.Po
 	-rm -f ./$(DEPDIR)/21-live-basic_allow.Po
@@ -1500,7 +1604,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/31-basic-version_check.Po
 	-rm -f ./$(DEPDIR)/32-live-tsync_allow.Po
 	-rm -f ./$(DEPDIR)/33-sim-socket_syscalls_be.Po
-	-rm -f ./$(DEPDIR)/34-sim-basic_blacklist.Po
+	-rm -f ./$(DEPDIR)/34-sim-basic_denylist.Po
 	-rm -f ./$(DEPDIR)/35-sim-negative_one.Po
 	-rm -f ./$(DEPDIR)/36-sim-ipc_syscalls.Po
 	-rm -f ./$(DEPDIR)/37-sim-ipc_syscalls_be.Po
@@ -1517,7 +1621,14 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/48-sim-32b_args.Po
 	-rm -f ./$(DEPDIR)/49-sim-64b_comparisons.Po
 	-rm -f ./$(DEPDIR)/50-sim-hash_collision.Po
+	-rm -f ./$(DEPDIR)/51-live-user_notification.Po
 	-rm -f ./$(DEPDIR)/52-basic-load.Po
+	-rm -f ./$(DEPDIR)/53-sim-binary_tree.Po
+	-rm -f ./$(DEPDIR)/54-live-binary_tree.Po
+	-rm -f ./$(DEPDIR)/55-basic-pfc_binary_tree.Po
+	-rm -f ./$(DEPDIR)/56-basic-iterate_syscalls.Po
+	-rm -f ./$(DEPDIR)/57-basic-rawsysrc.Po
+	-rm -f ./$(DEPDIR)/58-live-tsync_notify.Po
 	-rm -f ./$(DEPDIR)/miniseq.Po
 	-rm -f ./$(DEPDIR)/util.Plo
 	-rm -f Makefile
@@ -1583,7 +1694,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/15-basic-resolver.Po
 	-rm -f ./$(DEPDIR)/16-sim-arch_basic.Po
 	-rm -f ./$(DEPDIR)/17-sim-arch_merge.Po
-	-rm -f ./$(DEPDIR)/18-sim-basic_whitelist.Po
+	-rm -f ./$(DEPDIR)/18-sim-basic_allowlist.Po
 	-rm -f ./$(DEPDIR)/19-sim-missing_syscalls.Po
 	-rm -f ./$(DEPDIR)/20-live-basic_die.Po
 	-rm -f ./$(DEPDIR)/21-live-basic_allow.Po
@@ -1599,7 +1710,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/31-basic-version_check.Po
 	-rm -f ./$(DEPDIR)/32-live-tsync_allow.Po
 	-rm -f ./$(DEPDIR)/33-sim-socket_syscalls_be.Po
-	-rm -f ./$(DEPDIR)/34-sim-basic_blacklist.Po
+	-rm -f ./$(DEPDIR)/34-sim-basic_denylist.Po
 	-rm -f ./$(DEPDIR)/35-sim-negative_one.Po
 	-rm -f ./$(DEPDIR)/36-sim-ipc_syscalls.Po
 	-rm -f ./$(DEPDIR)/37-sim-ipc_syscalls_be.Po
@@ -1616,7 +1727,14 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/48-sim-32b_args.Po
 	-rm -f ./$(DEPDIR)/49-sim-64b_comparisons.Po
 	-rm -f ./$(DEPDIR)/50-sim-hash_collision.Po
+	-rm -f ./$(DEPDIR)/51-live-user_notification.Po
 	-rm -f ./$(DEPDIR)/52-basic-load.Po
+	-rm -f ./$(DEPDIR)/53-sim-binary_tree.Po
+	-rm -f ./$(DEPDIR)/54-live-binary_tree.Po
+	-rm -f ./$(DEPDIR)/55-basic-pfc_binary_tree.Po
+	-rm -f ./$(DEPDIR)/56-basic-iterate_syscalls.Po
+	-rm -f ./$(DEPDIR)/57-basic-rawsysrc.Po
+	-rm -f ./$(DEPDIR)/58-live-tsync_notify.Po
 	-rm -f ./$(DEPDIR)/miniseq.Po
 	-rm -f ./$(DEPDIR)/util.Plo
 	-rm -f Makefile

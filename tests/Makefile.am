@@ -57,7 +57,7 @@ check_PROGRAMS = \
 	15-basic-resolver \
 	16-sim-arch_basic \
 	17-sim-arch_merge \
-	18-sim-basic_whitelist \
+	18-sim-basic_allowlist \
 	19-sim-missing_syscalls \
 	20-live-basic_die \
 	21-live-basic_allow \
@@ -73,7 +73,7 @@ check_PROGRAMS = \
 	31-basic-version_check \
 	32-live-tsync_allow \
 	33-sim-socket_syscalls_be \
-	34-sim-basic_blacklist \
+	34-sim-basic_denylist \
 	35-sim-negative_one \
 	36-sim-ipc_syscalls \
 	37-sim-ipc_syscalls_be \
@@ -90,7 +90,14 @@ check_PROGRAMS = \
 	48-sim-32b_args \
 	49-sim-64b_comparisons \
 	50-sim-hash_collision \
-	52-basic-load
+	51-live-user_notification \
+	52-basic-load \
+	53-sim-binary_tree \
+	54-live-binary_tree \
+	55-basic-pfc_binary_tree \
+	56-basic-iterate_syscalls \
+	57-basic-rawsysrc \
+	58-live-tsync_notify
 
 EXTRA_DIST_TESTPYTHON = \
 	util.py \
@@ -111,7 +118,7 @@ EXTRA_DIST_TESTPYTHON = \
 	15-basic-resolver.py \
 	16-sim-arch_basic.py \
 	17-sim-arch_merge.py \
-	18-sim-basic_whitelist.py \
+	18-sim-basic_allowlist.py \
 	19-sim-missing_syscalls.py \
 	20-live-basic_die.py \
 	21-live-basic_allow.py \
@@ -127,7 +134,7 @@ EXTRA_DIST_TESTPYTHON = \
 	31-basic-version_check.py \
 	32-live-tsync_allow.py \
 	33-sim-socket_syscalls_be.py \
-	34-sim-basic_blacklist.py \
+	34-sim-basic_denylist.py \
 	35-sim-negative_one.py \
 	36-sim-ipc_syscalls.py \
 	37-sim-ipc_syscalls_be.py \
@@ -143,7 +150,13 @@ EXTRA_DIST_TESTPYTHON = \
 	48-sim-32b_args.py \
 	49-sim-64b_comparisons.py \
 	50-sim-hash_collision.py \
-	52-basic-load.py
+	51-live-user_notification.py \
+	52-basic-load.py \
+	53-sim-binary_tree.py \
+	54-live-binary_tree.py \
+	56-basic-iterate_syscalls.py \
+	57-basic-rawsysrc.py \
+	58-live-tsync_notify.py
 
 EXTRA_DIST_TESTCFGS = \
 	01-sim-allow.tests \
@@ -163,7 +176,7 @@ EXTRA_DIST_TESTCFGS = \
 	15-basic-resolver.tests \
 	16-sim-arch_basic.tests \
 	17-sim-arch_merge.tests \
-	18-sim-basic_whitelist.tests \
+	18-sim-basic_allowlist.tests \
 	19-sim-missing_syscalls.tests \
 	20-live-basic_die.tests \
 	21-live-basic_allow.tests \
@@ -179,7 +192,7 @@ EXTRA_DIST_TESTCFGS = \
 	31-basic-version_check.tests \
 	32-live-tsync_allow.tests \
 	33-sim-socket_syscalls_be.tests \
-	34-sim-basic_blacklist.tests \
+	34-sim-basic_denylist.tests \
 	35-sim-negative_one.tests \
 	36-sim-ipc_syscalls.tests \
 	37-sim-ipc_syscalls_be.tests \
@@ -196,10 +209,18 @@ EXTRA_DIST_TESTCFGS = \
 	48-sim-32b_args.tests \
 	49-sim-64b_comparisons.tests \
 	50-sim-hash_collision.tests \
-	52-basic-load.tests
+	51-live-user_notification.tests \
+	52-basic-load.tests \
+	53-sim-binary_tree.tests \
+	54-live-binary_tree.tests \
+	55-basic-pfc_binary_tree.tests \
+	56-basic-iterate_syscalls.tests \
+	57-basic-rawsysrc.tests \
+	58-live-tsync_notify.tests
 
 EXTRA_DIST_TESTSCRIPTS = \
-	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc
+	38-basic-pfc_coverage.sh 38-basic-pfc_coverage.pfc \
+	55-basic-pfc_binary_tree.sh 55-basic-pfc_binary_tree.pfc
 
 EXTRA_DIST_TESTTOOLS = regression testdiff testgen
 

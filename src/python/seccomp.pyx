@@ -36,6 +36,7 @@ Filter action values:
     LOG - allow the syscall to be executed after the action has been logged
     ALLOW - allow the syscall to execute
     TRAP - a SIGSYS signal will be thrown
+    NOTIFY - a notification event will be sent via the notification API
     ERRNO(x) - syscall will return (x)
     TRACE(x) - if the process is being traced, (x) will be returned to the
                tracing process via PTRACE_EVENT_SECCOMP and the
@@ -60,13 +61,18 @@ Example:
     # create a filter object with a default KILL action
     f = SyscallFilter(defaction=KILL)
 
+    # add some basic syscalls which python typically wants
+    f.add_rule(ALLOW, "rt_sigaction")
+    f.add_rule(ALLOW, "rt_sigreturn")
+    f.add_rule(ALLOW, "exit_group")
+    f.add_rule(ALLOW, "brk")
+
     # add syscall filter rules to allow certain syscalls
     f.add_rule(ALLOW, "open")
     f.add_rule(ALLOW, "close")
-    f.add_rule(ALLOW, "read", Arg(0, EQ, sys.stdin))
-    f.add_rule(ALLOW, "write", Arg(0, EQ, sys.stdout))
-    f.add_rule(ALLOW, "write", Arg(0, EQ, sys.stderr))
-    f.add_rule(ALLOW, "rt_sigreturn")
+    f.add_rule(ALLOW, "read", Arg(0, EQ, sys.stdin.fileno()))
+    f.add_rule(ALLOW, "write", Arg(0, EQ, sys.stdout.fileno()))
+    f.add_rule(ALLOW, "write", Arg(0, EQ, sys.stderr.fileno()))
 
     # load the filter into the kernel
     f.load()
@@ -75,7 +81,9 @@ __author__ =  'Paul Moore <paul@paul-moore.com>'
 __date__ = "3 February 2017"
 
 from cpython.version cimport PY_MAJOR_VERSION
-from libc.stdint cimport uint32_t
+from libc.stdint cimport int8_t, int16_t, int32_t, int64_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
+from libc.stdlib cimport free
 import errno
 
 cimport libseccomp
@@ -102,6 +110,7 @@ KILL = libseccomp.SCMP_ACT_KILL
 TRAP = libseccomp.SCMP_ACT_TRAP
 LOG = libseccomp.SCMP_ACT_LOG
 ALLOW = libseccomp.SCMP_ACT_ALLOW
+NOTIFY = libseccomp.SCMP_ACT_NOTIFY
 def ERRNO(int errno):
     """The action ERRNO(x) means that the syscall will return (x).
     To conform to Linux syscall calling conventions, the syscall return
@@ -205,6 +214,7 @@ cdef class Arch:
     PARISC64 - 64-bit PA-RISC
     PPC64 - 64-bit PowerPC
     PPC - 32-bit PowerPC
+    RISCV64 - 64-bit RISC-V
     """
 
     cdef int _token
@@ -228,6 +238,7 @@ cdef class Arch:
     PPC64LE = libseccomp.SCMP_ARCH_PPC64LE
     S390 = libseccomp.SCMP_ARCH_S390
     S390X = libseccomp.SCMP_ARCH_S390X
+    RISCV64 = libseccomp.SCMP_ARCH_RISCV64
 
     def __cinit__(self, arch=libseccomp.SCMP_ARCH_NATIVE):
         """ Initialize the architecture object.
@@ -303,6 +314,15 @@ cdef class Attr:
     ACT_BADARCH - the filter's bad architecture action
     CTL_NNP - the filter's "no new privileges" flag
     CTL_NNP - the filter's thread sync flag
+    CTL_TSYNC - sync threads on filter load
+    CTL_TSKIP - allow rules with a -1 syscall number
+    CTL_LOG - log not-allowed actions
+    CTL_SSB - disable SSB mitigations
+    CTL_OPTIMIZE - the filter's optimization level:
+                   0: currently unused
+                   1: rules weighted by priority and complexity (DEFAULT)
+                   2: binary tree sorted by syscall number
+    API_SYSRAWRC - return the raw syscall codes
     """
     ACT_DEFAULT = libseccomp.SCMP_FLTATR_ACT_DEFAULT
     ACT_BADARCH = libseccomp.SCMP_FLTATR_ACT_BADARCH
@@ -310,6 +330,9 @@ cdef class Attr:
     CTL_TSYNC = libseccomp.SCMP_FLTATR_CTL_TSYNC
     API_TSKIP = libseccomp.SCMP_FLTATR_API_TSKIP
     CTL_LOG = libseccomp.SCMP_FLTATR_CTL_LOG
+    CTL_SSB = libseccomp.SCMP_FLTATR_CTL_SSB
+    CTL_OPTIMIZE = libseccomp.SCMP_FLTATR_CTL_OPTIMIZE
+    API_SYSRAWRC = libseccomp.SCMP_FLTATR_API_SYSRAWRC
 
 cdef class Arg:
     """ Python object representing a SyscallFilter syscall argument.
@@ -343,6 +366,218 @@ cdef class Arg:
         e.g. seccomp_rule_add().
         """
         return self._arg
+
+cdef class Notification:
+    """ Python object representing a seccomp notification.
+    """
+    cdef uint64_t _id
+    cdef uint32_t _pid
+    cdef uint32_t _flags
+    cdef int _syscall
+    cdef uint32_t _syscall_arch
+    cdef uint64_t _syscall_ip
+    cdef uint64_t _syscall_args[6]
+
+    def __cinit__(self, id, pid, flags, syscall, arch, ip, args):
+        """ Initialize the notification.
+
+        Arguments:
+        id - the notification ID
+        pid - the process ID
+        flags - the notification flags
+        syscall - the syscall number
+        ip - the instruction pointer
+        args - list of the six syscall arguments
+
+        Description:
+        Create a seccomp Notification object.
+        """
+        self._id = id
+        self._pid = pid
+        self._flags = flags
+        self._syscall = syscall
+        self._syscall_arch = arch
+        self._syscall_ip = ip
+        self._syscall_args[0] = args[0]
+        self._syscall_args[1] = args[1]
+        self._syscall_args[2] = args[2]
+        self._syscall_args[3] = args[3]
+        self._syscall_args[4] = args[4]
+        self._syscall_args[5] = args[5]
+
+    @property
+    def id(self):
+        """ Get the seccomp notification ID.
+
+        Description:
+        Get the seccomp notification ID.
+        """
+        return self._id
+
+    @property
+    def pid(self):
+        """ Get the seccomp notification process ID.
+
+        Description:
+        Get the seccomp notification process ID.
+        """
+        return self._pid
+
+    @property
+    def flags(self):
+        """ Get the seccomp notification flags.
+
+        Description:
+        Get the seccomp notification flags.
+        """
+        return self._flags
+
+    @property
+    def syscall(self):
+        """ Get the seccomp notification syscall.
+
+        Description:
+        Get the seccomp notification syscall.
+        """
+        return self._syscall
+
+    @property
+    def syscall_arch(self):
+        """ Get the seccomp notification syscall architecture.
+
+        Description:
+        Get the seccomp notification syscall architecture.
+        """
+        return self._syscall_arch
+
+    @property
+    def syscall_ip(self):
+        """ Get the seccomp notification syscall instruction pointer.
+
+        Description:
+        Get the seccomp notification syscall instruction pointer.
+        """
+        return self._syscall_ip
+
+    @property
+    def syscall_args(self):
+        """ Get the seccomp notification syscall arguments.
+
+        Description:
+        Get the seccomp notification syscall arguments in a six element list.
+        """
+        return [self._syscall_args[0], self._syscall_args[1],
+                self._syscall_args[2], self._syscall_args[3],
+                self._syscall_args[4], self._syscall_args[5]]
+
+cdef class NotificationResponse:
+    """ Python object representing a seccomp notification response.
+    """
+    cdef uint64_t _id
+    cdef int64_t _val
+    cdef int32_t _error
+    cdef uint32_t _flags
+
+    def __cinit__(self, notify, val = 0, error = 0, flags = 0):
+        """ Initialize the notification response.
+
+        Arguments:
+        notify - a Notification object
+        val - the notification response value
+        error - the notification response error
+        flags - the notification response flags
+
+        Description:
+        Create a seccomp NotificationResponse object.
+        """
+        self._id = notify.id
+        self._val = val
+        self._error = error
+        self._flags = flags
+
+    @property
+    def id(self):
+        """ Get the seccomp notification response ID.
+
+        Description:
+        Get the seccomp notification response ID.
+        """
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        """ Set the seccomp notification response ID.
+
+        Arguments:
+        id - the notification response ID
+
+        Description:
+        Set the seccomp notification response ID.
+        """
+        self._id = value
+
+    @property
+    def val(self):
+        """ Get the seccomp notification response value.
+
+        Description:
+        Get the seccomp notification response value.
+        """
+        return self._val
+
+    @val.setter
+    def val(self, value):
+        """ Set the seccomp notification response value.
+
+        Arguments:
+        val - the notification response value
+
+        Description:
+        Set the seccomp notification response value.
+        """
+        self._val = value
+
+    @property
+    def error(self):
+        """ Get the seccomp notification response error.
+
+        Description:
+        Get the seccomp notification response error.
+        """
+        return self._error
+
+    @error.setter
+    def error(self, value):
+        """ Set the seccomp notification response error.
+
+        Arguments:
+        error - the notification response error
+
+        Description:
+        Set the seccomp notification response error.
+        """
+        self._error = value
+
+    @property
+    def flags(self):
+        """ Get the seccomp notification response flags.
+
+        Description:
+        Get the seccomp notification response flags.
+        """
+        return self._flags
+
+    @flags.setter
+    def flags(self, value):
+        """ Set the seccomp notification response flags.
+
+        Arguments:
+        flags - the notification response flags
+
+        Description:
+        Set the seccomp notification response flags.
+        """
+        self._flags = value
 
 cdef class SyscallFilter:
     """ Python object representing a seccomp syscall filter. """
@@ -712,6 +947,60 @@ cdef class SyscallFilter:
         if rc != 0:
             raise RuntimeError(str.format("Library error (errno = {0})", rc))
 
+    def receive_notify(self):
+        """ Receive seccomp notifications.
+
+        Description:
+        Receive a seccomp notification from the system, requires the use of
+        the NOTIFY action.
+        """
+        cdef libseccomp.seccomp_notif *req
+
+        fd = libseccomp.seccomp_notify_fd(self._ctx)
+        if fd < 0:
+            raise RuntimeError("Notifications not enabled/active")
+        rc = libseccomp.seccomp_notify_alloc(&req, NULL)
+        if rc < 0:
+            raise RuntimeError(str.format("Library error (errno = {0})", rc))
+        rc = libseccomp.seccomp_notify_receive(fd, req)
+        if rc < 0:
+            raise RuntimeError(str.format("Library error (errno = {0})", rc))
+        rc = libseccomp.seccomp_notify_id_valid(fd, req.id)
+        if rc < 0:
+            raise RuntimeError(str.format("Library error (errno = {0})", rc))
+        notify = Notification(req.id, req.pid, req.flags, req.data.nr,
+                              req.data.arch, req.data.instruction_pointer,
+                              [req.data.args[0], req.data.args[1],
+                               req.data.args[2], req.data.args[3],
+                               req.data.args[4], req.data.args[5]])
+        free(req)
+        return notify
+
+    def respond_notify(self, response):
+        """ Send a seccomp notification response.
+
+        Arguments:
+        response - the response to send to the system
+
+        Description:
+        Respond to a seccomp notification.
+        """
+        cdef libseccomp.seccomp_notif_resp *resp
+
+        fd = libseccomp.seccomp_notify_fd(self._ctx)
+        if fd < 0:
+            raise RuntimeError("Notifications not enabled/active")
+        rc = libseccomp.seccomp_notify_alloc(NULL, &resp)
+        if rc < 0:
+            raise RuntimeError(str.format("Library error (errno = {0})", rc))
+        resp.id = response.id
+        resp.val = response.val
+        resp.error = response.error
+        resp.flags = response.flags
+        rc = libseccomp.seccomp_notify_respond(fd, resp)
+        if rc < 0:
+            raise RuntimeError(str.format("Library error (errno = {0})", rc))
+
     def export_pfc(self, file):
         """ Export the filter in PFC format.
 
@@ -733,7 +1022,8 @@ cdef class SyscallFilter:
         Arguments:
         file - the output file
 
-        Output the filter in Berkley Packet Filter (BPF) to the given
+        Description:
+        Output the filter in Berkeley Packet Filter (BPF) to the given
         file.  The output is identical to what is loaded into the
         Linux Kernel.
         """

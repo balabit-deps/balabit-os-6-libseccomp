@@ -22,9 +22,12 @@
 #ifndef _SYSTEM_H
 #define _SYSTEM_H
 
+#include <inttypes.h>
+#include <stdbool.h>
 #include <linux/filter.h>
+#include <linux/types.h>
 #include <sys/prctl.h>
-
+#include <sys/ioctl.h>
 #include "configure.h"
 
 /* NOTE: this was taken from the Linux Kernel sources */
@@ -40,7 +43,6 @@ struct db_filter_col;
 #else
 
 /* NOTE: the definitions below were taken from the Linux Kernel sources */
-#include <linux/types.h>
 
 /* Valid values for seccomp.mode and prctl(PR_SET_SECCOMP, <mode>) */
 #define SECCOMP_MODE_DISABLED	0 /* seccomp is not in use. */
@@ -60,12 +62,11 @@ struct db_filter_col;
 #define SECCOMP_RET_KILL	SECCOMP_RET_KILL_THREAD /* default to killing the thread */
 #define SECCOMP_RET_TRAP	0x00030000U /* disallow and force a SIGSYS */
 #define SECCOMP_RET_ERRNO	0x00050000U /* returns an errno */
+#define SECCOMP_RET_USER_NOTIF	0x7fc00000U /* notifies userspace */
 #define SECCOMP_RET_TRACE	0x7ff00000U /* pass to a tracer or disallow */
-#define SECCOMP_RET_LOG		0x7ffc0000U /* allow after logging */
 #define SECCOMP_RET_ALLOW	0x7fff0000U /* allow */
 
 /* Masks for the return value sections. */
-#define SECCOMP_RET_ACTION_FULL 0xffff0000U
 #define SECCOMP_RET_ACTION	0x7fff0000U
 #define SECCOMP_RET_DATA	0x0000ffffU
 
@@ -109,28 +110,79 @@ typedef struct sock_filter bpf_instr_raw;
 #ifndef SECCOMP_GET_ACTION_AVAIL
 #define SECCOMP_GET_ACTION_AVAIL	2
 #endif
+#ifndef SECCOMP_GET_NOTIF_SIZES
+#define SECCOMP_GET_NOTIF_SIZES		3
+#endif
 
 /* flags for the seccomp() syscall */
 #ifndef SECCOMP_FILTER_FLAG_TSYNC
-#define SECCOMP_FILTER_FLAG_TSYNC	(1UL << 0)
+#define SECCOMP_FILTER_FLAG_TSYNC		(1UL << 0)
 #endif
 #ifndef SECCOMP_FILTER_FLAG_LOG
-#define SECCOMP_FILTER_FLAG_LOG		(1UL << 1)
+#define SECCOMP_FILTER_FLAG_LOG			(1UL << 1)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_SPEC_ALLOW
+#define SECCOMP_FILTER_FLAG_SPEC_ALLOW		(1UL << 2)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_NEW_LISTENER
+#define SECCOMP_FILTER_FLAG_NEW_LISTENER	(1UL << 3)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_TSYNC_ESRCH
+#define SECCOMP_FILTER_FLAG_TSYNC_ESRCH		(1UL << 4)
 #endif
 
-/* SECCOMP_RET_ACTION_FULL was added in kernel v4.14.  It may not be
- * defined on older kernels
- */
+#ifndef SECCOMP_RET_LOG
+#define SECCOMP_RET_LOG			0x7ffc0000U /* allow after logging */
+#endif
+
+/* SECCOMP_RET_ACTION_FULL was added in kernel v4.14. */
 #ifndef SECCOMP_RET_ACTION_FULL
 #define SECCOMP_RET_ACTION_FULL		0xffff0000U
 #endif
 
-/* SECCOMP_RET_LOG was added in kernel v4.14.  It may not be defined on
- * older kernels.
- */
+/* SECCOMP_RET_LOG was added in kernel v4.14. */
 #ifndef SECCOMP_RET_LOG
 #define SECCOMP_RET_LOG			0x7fc00000U
 #endif
+
+/* SECCOMP_RET_USER_NOTIF was added in kernel v5.0. */
+#ifndef SECCOMP_RET_USER_NOTIF
+#define SECCOMP_RET_USER_NOTIF	 	0x7fc00000U
+
+struct seccomp_notif_sizes {
+	__u16 seccomp_notif;
+	__u16 seccomp_notif_resp;
+	__u16 seccomp_data;
+};
+
+struct seccomp_notif {
+	__u64 id;
+	__u32 pid;
+	__u32 flags;
+	struct seccomp_data data;
+};
+
+struct seccomp_notif_resp {
+	__u64 id;
+	__s64 val;
+	__s32 error;
+	__u32 flags;
+};
+
+#define SECCOMP_IOC_MAGIC               '!'
+#define SECCOMP_IO(nr)                  _IO(SECCOMP_IOC_MAGIC, nr)
+#define SECCOMP_IOR(nr, type)           _IOR(SECCOMP_IOC_MAGIC, nr, type)
+#define SECCOMP_IOW(nr, type)           _IOW(SECCOMP_IOC_MAGIC, nr, type)
+#define SECCOMP_IOWR(nr, type)          _IOWR(SECCOMP_IOC_MAGIC, nr, type)
+
+/* flags for seccomp notification fd ioctl */
+#define SECCOMP_IOCTL_NOTIF_RECV        SECCOMP_IOWR(0, struct seccomp_notif)
+#define SECCOMP_IOCTL_NOTIF_SEND        SECCOMP_IOWR(1, \
+						     struct seccomp_notif_resp)
+#define SECCOMP_IOCTL_NOTIF_ID_VALID    SECCOMP_IOR(2, __u64)
+#endif /* SECCOMP_RET_USER_NOTIF */
+
+void sys_reset_state(void);
 
 int sys_chk_seccomp_syscall(void);
 void sys_set_seccomp_syscall(bool enable);
@@ -141,6 +193,12 @@ void sys_set_seccomp_action(uint32_t action, bool enable);
 int sys_chk_seccomp_flag(int flag);
 void sys_set_seccomp_flag(int flag, bool enable);
 
-int sys_filter_load(const struct db_filter_col *col);
+int sys_filter_load(struct db_filter_col *col, bool rawrc);
 
+int sys_notify_fd(void);
+int sys_notify_alloc(struct seccomp_notif **req,
+		     struct seccomp_notif_resp **resp);
+int sys_notify_receive(int fd, struct seccomp_notif *req);
+int sys_notify_respond(int fd, struct seccomp_notif_resp *resp);
+int sys_notify_id_valid(int fd, uint64_t id);
 #endif

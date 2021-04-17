@@ -1,4 +1,4 @@
-.TH "seccomp_init" 3 "25 July 2012" "paul@paul-moore.com" "libseccomp Documentation"
+.TH "seccomp_init" 3 "30 May 2020" "paul@paul-moore.com" "libseccomp Documentation"
 .\" //////////////////////////////////////////////////////////////////////////
 .SH NAME
 .\" //////////////////////////////////////////////////////////////////////////
@@ -36,7 +36,17 @@ The
 function releases the existing filter context state before reinitializing it
 and can only be called after a call to
 .BR seccomp_init ()
-has succeeded.
+has succeeded.  If
+.BR seccomp_reset ()
+is called with a NULL filter, it resets the library's global task state,
+including any notification file descriptors retrieved by
+.BR seccomp_notify_fd(3) .
+Normally this is not needed, but it may be required to continue using the
+library after a
+.BR fork ()
+or
+.BR clone ()
+call to ensure the API level and user notification state is properly reset.
 .P
 When the caller is finished configuring the seccomp filter and has loaded it
 into the kernel, the caller should call
@@ -98,7 +108,14 @@ The
 .BR seccomp_init ()
 function returns a filter context on success, NULL on failure.  The
 .BR seccomp_reset ()
-function returns zero on success, negative errno values on failure.
+function returns zero on success or one of the following error codes on
+failure:
+.TP
+.B -EINVAL
+Invalid input, either the context or action is invalid.
+.TP
+.B -ENOMEM
+The library was unable to allocate enough memory.
 .\" //////////////////////////////////////////////////////////////////////////
 .SH EXAMPLES
 .\" //////////////////////////////////////////////////////////////////////////
